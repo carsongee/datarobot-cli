@@ -13,7 +13,6 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/datarobot/cli/cmd/templates/setup"
 	"github.com/datarobot/cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -46,43 +45,11 @@ The following actions will be performed:
 				defer f.Close()
 			}
 
-			m := NewStartModel(opts)
+			m := NewStartModel(cmd.Context(), opts, "")
 			p := tea.NewProgram(tui.NewInterruptibleModel(m), tea.WithAltScreen())
 
-			finalModel, err := p.Run()
-			if err != nil {
-				return err
-			}
+			_, err := p.Run()
 
-			// Check if we need to launch template setup after quitting
-			startModel, ok := finalModel.(tui.InterruptibleModel)
-			if !ok {
-				return nil
-			}
-
-			innerModel, ok := startModel.Model.(Model)
-			if !ok {
-				return nil
-			}
-
-			if innerModel.needTemplateSetup && innerModel.done && !innerModel.quitting {
-				// Need to run template setup
-				// After it completes, we'll be in the cloned directory,
-				// so we can just run start again
-				err := setup.RunTea(cmd.Context(), true)
-				if err != nil {
-					return err
-				}
-
-				// Now run start again - we're in the cloned repo directory
-				// Create a new start model and run it
-				m2 := NewStartModel(opts)
-				p2 := tea.NewProgram(tui.NewInterruptibleModel(m2), tea.WithAltScreen())
-
-				_, err = p2.Run()
-
-				return err
->>>>>>> 6000d54 (- Added `task start` finding and executing powers)
 			}
 
 			return nil

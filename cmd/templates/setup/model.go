@@ -58,7 +58,6 @@ type Model struct {
 	fetchSessionID  int  // Track current fetch session to ignore stale responses
 	authSessionID   int  // Track current auth session to ignore stale auth callbacks
 
-	fromStartCommand     bool // true if invoked from dr start
 	skipDotenvSetup      bool // true if dotenv setup was already completed
 	dotenvSetupCompleted bool // tracks if dotenv was actually run (for state update)
 	hostModel            HostModel
@@ -66,6 +65,7 @@ type Model struct {
 	list                 list.Model
 	clone                clone.Model
 	dotenv               dotenv.Model
+	SuccessCmd           tea.Cmd // Command to run on successful completion
 }
 
 type keyMap struct {
@@ -155,31 +155,26 @@ func handleExistingRepo(repoRoot string) tea.Msg {
 
 	envPath := filepath.Join(repoRoot, ".env")
 
-	// Try to fetch templates to match against git remote
 	templatesList, err := drapi.GetPublicTemplatesSorted()
 	if err != nil {
 		log.Warn("Failed to get templates", "error", err)
 	}
 
-	// Try to match the current repo to a template
 	var template drapi.Template
 
 	if err == nil {
 		template, _ = matchTemplateByGitRemote(templatesList)
 	}
 
-	// Check if .env file exists AND dotenv setup has been completed
 	envExists := false
 	if _, err := os.Stat(envPath); err == nil {
 		envExists = true
 	}
 
-	dotenvCompleted := state.HasCompletedDotenvSetup()
+	dotenvCompleted := state.HasCompletedDotenvSetup(repoRoot)
 
-	// If .env exists AND dotenv setup was completed, skip setup
 	if envExists && dotenvCompleted {
 		log.Debug(".env file exists and dotenv setup completed, skipping setup")
-		// .env exists, no setup needed - return exitMsg with template info
 		return alreadyConfiguredMsg{template: template}
 	}
 
@@ -226,14 +221,15 @@ func saveHost(host string) tea.Cmd {
 	}
 }
 
-func NewModel(fromStartCommand bool) Model {
+func NewModel() Model {
 	err := config.ReadConfigFile("")
 	if err != nil {
 		log.Error("Failed to read config file", "error", err)
 	}
 
 	// Check if dotenv setup was already completed
-	skipDotenv := state.HasCompletedDotenvSetup()
+	// Pass empty string to use FindRepoRoot
+	skipDotenv := state.HasCompletedDotenvSetup("")
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = tui.InfoStyle
@@ -281,8 +277,7 @@ func NewModel(fromStartCommand bool) Model {
 			SuccessCmd: dotenvUpdated,
 		},
 
-		fromStartCommand: fromStartCommand,
-		skipDotenvSetup:  skipDotenv,
+		skipDotenvSetup: skipDotenv,
 	}
 }
 
@@ -299,7 +294,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint: cyclop
 		switch keypress := msg.String(); keypress {
 		case "q":
 			if m.screen != cloneScreen && m.screen != dotenvScreen {
-				return m, tea.Quit
+				return m.completionCmd(false)
 			}
 		}
 	case spinner.TickMsg:
@@ -403,34 +398,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint: cyclop
 
 		return m, m.dotenv.Init()
 	case alreadyConfiguredMsg:
-		// Repo is already configured, just show exit screen with template info
 		m.screen = exitScreen
 		m.template = msg.template
 
-		return m, tea.Sequence(tea.ExitAltScreen, tea.Quit)
+		return m.completionCmd(true)
 	case dotenvUpdatedMsg:
 		m.screen = exitScreen
 
-		// If we cloned to a directory, change to it before updating state
-		if m.clone.Dir != "" {
-			if err := os.Chdir(m.clone.Dir); err != nil {
-				log.Warn("Failed to change to cloned directory", "dir", m.clone.Dir, "error", err)
-			}
-		}
-
 		// Update state if dotenv setup was completed
+		// Pass the cloned directory to state functions instead of changing working directory
 		if m.dotenvSetupCompleted {
-			_ = state.UpdateAfterDotenvSetup()
+			_ = state.UpdateAfterDotenvSetup(m.clone.Dir)
 		}
 
 		// Update state for templates setup completion
-		_ = state.UpdateAfterTemplatesSetup()
+		_ = state.UpdateAfterTemplatesSetup(m.clone.Dir)
 
-		return m, exit
+		return m.completionCmd(true)
 	case exitMsg:
 		m.screen = exitScreen
 
-		return m, tea.Sequence(tea.ExitAltScreen, tea.Quit)
+		return m.completionCmd(true)
 	}
 
 	var cmd tea.Cmd
@@ -581,45 +569,45 @@ func (m Model) View() string { //nolint: cyclop
 
 		sb.WriteString("\n")
 
-		if m.fromStartCommand {
-			sb.WriteString(tui.BaseTextStyle.Render("You can now start running your AI application!"))
+		// if m.fromStartCommand {
+		// 	sb.WriteString(tui.BaseTextStyle.Render("You can now start running your AI application!"))
+		// 	sb.WriteString("\n\n")
+
+		// 	if m.clone.Dir != "" {
+		// 		sb.WriteString(tui.BaseTextStyle.Render("To navigate to the project directory, use the following command:"))
+		// 		sb.WriteString("\n\n")
+		// 		sb.WriteString(tui.InfoStyle.Render("cd " + m.clone.Dir))
+		// 		sb.WriteString("\n\n")
+		// 	}
+
+		// 	sb.WriteString(tui.BaseTextStyle.Render("• Use "))
+		// 	sb.WriteString(tui.InfoStyle.Render("dr task run"))
+		// 	sb.WriteString(tui.BaseTextStyle.Render(" to see the key commands to deploy the app"))
+		// 	sb.WriteString("\n")
+		// 	sb.WriteString(tui.BaseTextStyle.Render("• Use "))
+		// 	sb.WriteString(tui.InfoStyle.Render("dr task list"))
+		// 	sb.WriteString(tui.BaseTextStyle.Render(" to see all the additional commands"))
+		// 	sb.WriteString("\n")
+		// } else {
+		if m.clone.Dir != "" {
+			sb.WriteString(tui.BaseTextStyle.Render("To navigate to the project directory, use the following command:"))
 			sb.WriteString("\n\n")
-
-			if m.clone.Dir != "" {
-				sb.WriteString(tui.BaseTextStyle.Render("To navigate to the project directory, use the following command:"))
-				sb.WriteString("\n\n")
-				sb.WriteString(tui.InfoStyle.Render("cd " + m.clone.Dir))
-				sb.WriteString("\n\n")
-			}
-
+			sb.WriteString(tui.InfoStyle.Render("cd " + m.clone.Dir))
+			sb.WriteString("\n\n")
+			sb.WriteString(tui.BaseTextStyle.Render("afterward get started with: "))
+			sb.WriteString(tui.InfoStyle.Render("dr start"))
+			sb.WriteString("\n")
+		} else {
 			sb.WriteString(tui.BaseTextStyle.Render("• Use "))
 			sb.WriteString(tui.InfoStyle.Render("dr task run"))
-			sb.WriteString(tui.BaseTextStyle.Render(" to see the key commands to deploy the app"))
+			sb.WriteString(tui.BaseTextStyle.Render(" to see the key commands"))
 			sb.WriteString("\n")
 			sb.WriteString(tui.BaseTextStyle.Render("• Use "))
 			sb.WriteString(tui.InfoStyle.Render("dr task list"))
-			sb.WriteString(tui.BaseTextStyle.Render(" to see all the additional commands"))
+			sb.WriteString(tui.BaseTextStyle.Render(" to see all available commands"))
 			sb.WriteString("\n")
-		} else {
-			if m.clone.Dir != "" {
-				sb.WriteString(tui.BaseTextStyle.Render("To navigate to the project directory, use the following command:"))
-				sb.WriteString("\n\n")
-				sb.WriteString(tui.InfoStyle.Render("cd " + m.clone.Dir))
-				sb.WriteString("\n\n")
-				sb.WriteString(tui.BaseTextStyle.Render("afterward get started with: "))
-				sb.WriteString(tui.InfoStyle.Render("dr start"))
-				sb.WriteString("\n")
-			} else {
-				sb.WriteString(tui.BaseTextStyle.Render("• Use "))
-				sb.WriteString(tui.InfoStyle.Render("dr task run"))
-				sb.WriteString(tui.BaseTextStyle.Render(" to see the key commands"))
-				sb.WriteString("\n")
-				sb.WriteString(tui.BaseTextStyle.Render("• Use "))
-				sb.WriteString(tui.InfoStyle.Render("dr task list"))
-				sb.WriteString(tui.BaseTextStyle.Render(" to see all available commands"))
-				sb.WriteString("\n")
-			}
 		}
+		// }
 	}
 
 	// Always show status bar at the bottom
@@ -639,4 +627,14 @@ func (m Model) View() string { //nolint: cyclop
 	}
 
 	return sb.String()
+}
+
+func (m Model) completionCmd(exitAltScreen bool) (Model, tea.Cmd) {
+	if m.SuccessCmd != nil {
+		return m, m.SuccessCmd
+	}
+	if exitAltScreen {
+		return m, tea.Sequence(tea.ExitAltScreen, tea.Quit)
+	}
+	return m, tea.Quit
 }

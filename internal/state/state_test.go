@@ -27,20 +27,8 @@ func TestGetStatePath(t *testing.T) {
 		tmpDir, err := filepath.EvalSymlinks(tmpDir)
 		require.NoError(t, err)
 
-		// Change to temp directory
-		originalWd, err := os.Getwd()
-		require.NoError(t, err)
-
-		defer func() {
-			err := os.Chdir(originalWd)
-			require.NoError(t, err)
-		}()
-
-		err = os.Chdir(tmpDir)
-		require.NoError(t, err)
-
 		// Get state path
-		statePath, err := GetStatePath()
+		statePath, err := GetStatePath(tmpDir)
 		require.NoError(t, err)
 
 		expected := filepath.Join(tmpDir, ".datarobot", "cli", "state.yaml")
@@ -56,18 +44,6 @@ func TestLoadSave(t *testing.T) {
 		err := os.MkdirAll(localStateDir, 0o755)
 		require.NoError(t, err)
 
-		// Change to temp directory
-		originalWd, err := os.Getwd()
-		require.NoError(t, err)
-
-		defer func() {
-			err := os.Chdir(originalWd)
-			require.NoError(t, err)
-		}()
-
-		err = os.Chdir(tmpDir)
-		require.NoError(t, err)
-
 		// Create and save state
 		now := time.Now().UTC().Truncate(time.Second)
 		originalState := &State{
@@ -75,11 +51,11 @@ func TestLoadSave(t *testing.T) {
 			CLIVersion: "1.0.0",
 		}
 
-		err = Save(originalState)
+		err = Save(originalState, tmpDir)
 		require.NoError(t, err)
 
 		// Load state back
-		loadedState, err := Load()
+		loadedState, err := Load(tmpDir)
 		require.NoError(t, err)
 		require.NotNil(t, loadedState)
 
@@ -91,20 +67,8 @@ func TestLoadSave(t *testing.T) {
 		// Create temporary directory without state file
 		tmpDir := t.TempDir()
 
-		// Change to temp directory
-		originalWd, err := os.Getwd()
-		require.NoError(t, err)
-
-		defer func() {
-			err := os.Chdir(originalWd)
-			require.NoError(t, err)
-		}()
-
-		err = os.Chdir(tmpDir)
-		require.NoError(t, err)
-
 		// Try to load non-existent state
-		state, err := Load()
+		state, err := Load(tmpDir)
 		require.NoError(t, err)
 		assert.Nil(t, state)
 	})
@@ -117,28 +81,16 @@ func TestUpdateAfterSuccessfulRun(t *testing.T) {
 	err := os.MkdirAll(localStateDir, 0o755)
 	require.NoError(t, err)
 
-	// Change to temp directory
-	originalWd, err := os.Getwd()
-	require.NoError(t, err)
-
-	defer func() {
-		err := os.Chdir(originalWd)
-		require.NoError(t, err)
-	}()
-
-	err = os.Chdir(tmpDir)
-	require.NoError(t, err)
-
 	// Update state
 	beforeUpdate := time.Now().UTC()
 
-	err = UpdateAfterSuccessfulRun()
+	err = UpdateAfterSuccessfulRun(tmpDir)
 	require.NoError(t, err)
 
 	afterUpdate := time.Now().UTC()
 
 	// Load and verify
-	state, err := Load()
+	state, err := Load(tmpDir)
 	require.NoError(t, err)
 	require.NotNil(t, state)
 

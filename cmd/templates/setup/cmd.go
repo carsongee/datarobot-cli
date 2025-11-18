@@ -41,7 +41,7 @@ var Cmd = &cobra.Command{
 }
 
 // RunTea starts the template setup TUI, optionally from the start command
-func RunTea(ctx context.Context, fromStartCommand bool) error {
+func RunTea(ctx context.Context) error {
 	if viper.GetBool("debug") {
 		f, err := tea.LogToFile("tea-debug.log", "debug")
 		if err != nil {
@@ -51,7 +51,7 @@ func RunTea(ctx context.Context, fromStartCommand bool) error {
 		defer f.Close()
 	}
 
-	m := NewModel(fromStartCommand)
+	m := NewModel()
 	p := tea.NewProgram(
 		tui.NewInterruptibleModel(m),
 		tea.WithAltScreen(),
@@ -72,5 +72,17 @@ func RunTea(ctx context.Context, fromStartCommand bool) error {
 		}
 	}
 
-	return err
+	finalModel, err := p.Run()
+	if err != nil {
+		return "", err
+	}
+
+	// Extract the cloned directory from the model
+	if interruptibleModel, ok := finalModel.(tui.InterruptibleModel); ok {
+		if setupModel, ok := interruptibleModel.Model.(Model); ok {
+			return setupModel.clone.Dir, nil
+		}
+	}
+
+	return "", nil
 }

@@ -9,6 +9,8 @@
 package start
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +21,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/datarobot/cli/cmd/templates/setup"
 	"github.com/datarobot/cli/internal/repo"
 	"github.com/datarobot/cli/internal/state"
 	"github.com/datarobot/cli/internal/tools"
@@ -34,16 +37,21 @@ type step struct {
 }
 
 type Model struct {
+	ctx                  context.Context
 	opts                 Options
 	steps                []step
 	current              int
 	done                 bool
 	quitting             bool
 	err                  error
-	stepCompleteMessage  string // Optional message from the completed step
-	quickstartScriptPath string // Path to the quickstart script to execute
-	waitingToExecute     bool   // Whether to wait for user input before proceeding
-	needTemplateSetup    bool   // Whether we need to run template setup after quitting
+	stepCompleteMessage  string    // Optional message from the completed step
+	quickstartScriptPath string    // Path to the quickstart script to execute
+	waitingToExecute     bool      // Whether to wait for user input before proceeding
+	runSetup             bool      // Whether we should run template setup
+	repoRoot             string    // Optional repository root path (empty means use FindRepoRoot or cwd)
+	processOutput        string    // Output from the executed process (task start or script)
+	templateSetupActive  bool      // Whether we're currently running template setup
+	templateSetupModel   tea.Model // Template setup model if active
 }
 
 type stepCompleteMsg struct {
@@ -52,13 +60,20 @@ type stepCompleteMsg struct {
 	done                 bool   // Whether the quickstart process is complete
 	quickstartScriptPath string // Path to quickstart script found (if any)
 	executeScript        bool   // Whether to execute the script immediately
-	needTemplateSetup    bool   // Whether we need to run template setup
+	runSetup             bool   // Whether we should run template setup
 }
 
-type scriptCompleteMsg struct{}
+type scriptCompleteMsg struct {
+	output string
+}
 
 type stepErrorMsg struct {
 	err error // Error encountered during step execution
+}
+
+type setupCompleteMsg struct {
+	clonedDir string
+	err       error
 }
 
 // err messages used in the start command.
@@ -72,7 +87,7 @@ var (
 	arrow     = lipgloss.NewStyle().Foreground(tui.DrPurple).SetString("→")
 )
 
-func NewStartModel(opts Options) Model {
+func NewStartModel(ctx context.Context, opts Options, repoRoot string) Model {
 	return Model{
 		steps: []step{
 			{description: "Starting application quickstart process...", fn: startQuickstart},
@@ -80,8 +95,10 @@ func NewStartModel(opts Options) Model {
 			// TODO Implement validateEnvironment
 			// {description: "Validating environment...", fn: validateEnvironment},
 			{description: "Checking repository setup...", fn: checkRepository},
+			{description: "Running template setup if needed...", fn: templateSetupStep},
 			{description: "Finding and executing start command...", fn: findAndExecuteStart},
 		},
+		ctx:                  ctx,
 		opts:                 opts,
 		current:              0,
 		done:                 false,
@@ -90,7 +107,8 @@ func NewStartModel(opts Options) Model {
 		stepCompleteMessage:  "",
 		quickstartScriptPath: "",
 		waitingToExecute:     false,
-		needTemplateSetup:    false,
+		runSetup:             false,
+		repoRoot:             repoRoot,
 	}
 }
 
@@ -129,31 +147,52 @@ func (m Model) currentStep() step {
 }
 
 func (m Model) execQuickstartScript() tea.Cmd {
-	// Special case: if the path is "task-start", run 'task start' directly
-	if m.quickstartScriptPath == "task-start" {
-		// Run 'task start' - use the task binary directly
-		taskPath, err := exec.LookPath("task")
-		if err != nil {
-			// Fallback to just "task" and let the system find it
-			taskPath = "task"
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+
+		if m.quickstartScriptPath == "task-start" {
+			taskPath, err := exec.LookPath("task")
+			if err != nil {
+				taskPath = "task"
+			}
+
+			cmd = exec.Command(taskPath, "start")
+		} else {
+			cmd = exec.Command(m.quickstartScriptPath)
 		}
 
-		cmd := exec.Command(taskPath, "start")
+		if m.repoRoot != "" {
+			cmd.Dir = m.repoRoot
+		}
 
-		return tea.ExecProcess(cmd, func(_ error) tea.Msg {
-			return scriptCompleteMsg{}
-		})
+		output, err := cmd.CombinedOutput()
+
+		outStr := string(output)
+		if err != nil {
+			outStr += "\nError: " + err.Error()
+		}
+
+		return scriptCompleteMsg{output: outStr}
 	}
-
-	// Regular quickstart script execution
-	cmd := exec.Command(m.quickstartScriptPath)
-
-	return tea.ExecProcess(cmd, func(_ error) tea.Msg {
-		return scriptCompleteMsg{}
-	})
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+
+	// Handle template setup submodel if active
+	if m.templateSetupActive && m.templateSetupModel != nil {
+		setupModel, cmd := m.templateSetupModel.Update(msg)
+		m.templateSetupModel = setupModel
+
+		// Check if submodel is done (implement a Done() method or similar)
+		if done, clonedDir := isTemplateSetupDone(setupModel); done {
+			m.templateSetupActive = false
+			m.templateSetupModel = nil
+			m.repoRoot = clonedDir
+			m.runSetup = false
+			return m, m.executeNextStep()
+		}
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -168,10 +207,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case scriptCompleteMsg:
-		// Script execution completed successfully, update state and quit
-		_ = state.UpdateAfterSuccessfulRun()
+		// Script execution completed, update state and show output
+		m.processOutput = msg.output
+		_ = state.UpdateAfterSuccessfulRun(m.repoRoot)
+		m.done = true
 
-		return m, tea.Quit
+		return m, nil
+	case setupCompleteMsg:
+		if msg.err != nil {
+			m.err = fmt.Errorf("template setup failed: %w", msg.err)
+			m.quitting = true
+
+			return m, nil
+		}
+
+		// Setup completed successfully, restart the start process with the cloned directory
+		if msg.clonedDir == "" {
+			// Setup was cancelled
+			m.quitting = true
+
+			return m, tea.Quit
+		}
+
+		// Create a new start model with the cloned directory and restart
+		m2 := NewStartModel(m.ctx, m.opts, msg.clonedDir)
+
+		return m2, m2.Init()
 	}
 
 	return m, nil
@@ -199,7 +260,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "n", "N", "q", "esc":
 			// Just hang on. Hang on, Dak.
 			// User chose to not execute script, so update state and quit
-			_ = state.UpdateAfterSuccessfulRun()
+			_ = state.UpdateAfterSuccessfulRun(m.repoRoot)
 			m.quitting = true
 
 			return m, tea.Quit
@@ -229,9 +290,9 @@ func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 		m.quickstartScriptPath = msg.quickstartScriptPath
 	}
 
-	// Store whether we need template setup
-	if msg.needTemplateSetup {
-		m.needTemplateSetup = true
+	// If we need to run template setup, trigger it
+	if msg.runSetup {
+		m.runSetup = true
 	}
 
 	// If this step requires executing a script, do it now
@@ -257,6 +318,9 @@ func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	if m.templateSetupActive && m.templateSetupModel != nil {
+		return m.templateSetupModel.View()
+	}
 	var sb strings.Builder
 
 	sb.WriteString("\n")
@@ -288,6 +352,15 @@ func (m Model) View() string {
 	// Display step message if available
 	if m.stepCompleteMessage != "" {
 		sb.WriteString(tui.BaseTextStyle.Render(m.stepCompleteMessage))
+		sb.WriteString("\n")
+	}
+
+	// Display process output if available
+	if m.processOutput != "" {
+		sb.WriteString("\n")
+		sb.WriteString(tui.BaseTextStyle.Render("Output from start command:"))
+		sb.WriteString("\n")
+		sb.WriteString(tui.DimStyle.Render(m.processOutput))
 		sb.WriteString("\n")
 	}
 
@@ -349,11 +422,10 @@ func checkRepository(m *Model) tea.Msg {
 	// Check if we're in a DataRobot repository
 	// If not, we need to run templates setup
 	if !repo.IsInRepo() {
-		// Not in a repo, signal that we need to run templates setup and quit
+		// Not in a repo, signal that we need to run templates setup
 		return stepCompleteMsg{
-			message:           "Not in a DataRobot repository. Launching template setup...\n",
-			done:              true,
-			needTemplateSetup: true,
+			message:  "Not in a DataRobot repository. Launching template setup...\n",
+			runSetup: true,
 		}
 	}
 
@@ -361,9 +433,46 @@ func checkRepository(m *Model) tea.Msg {
 	return stepCompleteMsg{}
 }
 
+func templateSetupStep(m *Model) tea.Msg {
+	if !m.runSetup {
+		// No need to run setup, continue
+		return stepCompleteMsg{}
+	}
+	m.templateSetupActive = true
+	m.templateSetupModel = setup.NewModel(true)
+	return nil
+	clonedDir, err := setup.RunTeaFromStart(m.ctx, true)
+	if err != nil {
+		return stepErrorMsg{err: fmt.Errorf("template setup failed: %w", err)}
+	}
+
+	if clonedDir == "" {
+		// User cancelled
+		return stepErrorMsg{err: errors.New("template setup cancelled")}
+	}
+
+	m.repoRoot = clonedDir
+
+	return stepCompleteMsg{message: "Template setup complete.\n"}
+}
+
 func findAndExecuteStart(m *Model) tea.Msg {
 	// Try to find and execute either 'dr task run start' or a quickstart script
 	// Prefer 'dr task run start' if available
+	currDirectory, err := os.Getwd()
+	if err != nil {
+		return stepErrorMsg{err: fmt.Errorf("failed to get current directory: %w", err)}
+	}
+
+	if m.repoRoot != "" {
+		if err := os.Chdir(m.repoRoot); err != nil {
+			return stepErrorMsg{err: fmt.Errorf("failed to change directory to %s: %w", m.repoRoot, err)}
+		}
+	}
+
+	defer func() {
+		_ = os.Chdir(currDirectory)
+	}()
 
 	// First, check if 'task start' exists
 	hasTask, err := hasTaskStart()
@@ -481,4 +590,11 @@ func isExecutable(path string, info os.FileInfo) bool {
 	// On Unix-like systems, check execute permission bits
 	// 0o111 checks if any execute bit is set (user, group, or other)
 	return info.Mode()&0o111 != 0
+}
+
+func isTemplateSetupDone(sub tea.Model) (bool, string) {
+	if setupModel, ok := sub.(setup.Model); ok && setupModel.Done {
+		return true, setupModel.clone.Dir
+	}
+	return false, ""
 }

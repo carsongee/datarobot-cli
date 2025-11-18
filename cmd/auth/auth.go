@@ -49,6 +49,16 @@ func waitForAPIKeyCallback(ctx context.Context, datarobotHost string) (string, e
 
 	listen, err := net.Listen("tcp", addr)
 	if err != nil {
+		if errors.Is(err, net.ErrClosed) || isAddressInUse(err) {
+			return "", fmt.Errorf("address %s is already in use.\n\n"+
+				"This usually means a previous CLI session didn't exit cleanly.\n"+
+				"To fix this, run one of these commands:\n\n"+
+				"  macOS/Linux: lsof -ti:51164 | xargs kill -9\n"+
+				"  Windows:     netstat -ano | findstr :51164\n"+
+				"              (then use: taskkill /PID <PID> /F)\n\n"+
+				"Or wait a few seconds and try again.", addr)
+		}
+
 		return "", err
 	}
 
@@ -80,6 +90,11 @@ func waitForAPIKeyCallback(ctx context.Context, datarobotHost string) (string, e
 		return apiKey, nil
 	case <-ctx.Done():
 		fmt.Println("\nCtrl-C received, exiting...")
+		// Ensure server is closed when context is cancelled
+		if err := server.Close(); err != nil {
+			log.Debug("Error closing server", "error", err)
+		}
+
 		return "", errors.New("Interrupt request received.")
 	}
 }
@@ -96,4 +111,19 @@ func writeConfigFile() {
 	WriteConfigFileSilent()
 
 	fmt.Println("Config file written successfully.")
+}
+
+// isAddressInUse checks if an error is due to the address already being in use
+func isAddressInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for "address already in use" or "bind" errors
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr.Op == "listen"
+	}
+
+	return false
 }

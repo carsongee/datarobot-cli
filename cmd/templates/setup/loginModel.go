@@ -65,6 +65,16 @@ func startServer(apiKeyChan chan string, datarobotHost string) tea.Cmd {
 
 		listen, err := net.Listen("tcp", addr)
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) || isAddressInUse(err) {
+				return errMsg{fmt.Errorf("address %s is already in use.\n\n"+
+					"This usually means a previous CLI session didn't exit cleanly.\n"+
+					"To fix this, run one of these commands:\n\n"+
+					"  macOS/Linux: lsof -ti:51164 | xargs kill -9\n"+
+					"  Windows:     netstat -ano | findstr :51164\n"+
+					"              (then use: taskkill /PID <PID> /F)\n\n"+
+					"Or wait a few seconds and try again.", addr)}
+			}
+
 			return errMsg{err}
 		}
 
@@ -171,4 +181,19 @@ func (lm LoginModel) View() string {
 	}
 
 	return sb.String()
+}
+
+// isAddressInUse checks if an error is due to the address already being in use
+func isAddressInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for "address already in use" or "bind" errors
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr.Op == "listen"
+	}
+
+	return false
 }

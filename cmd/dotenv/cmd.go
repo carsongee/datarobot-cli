@@ -176,7 +176,8 @@ This wizard will help you:
 		}
 
 		// Update state after successful completion
-		_ = state.UpdateAfterDotenvSetup()
+		// Pass empty string to use FindRepoRoot
+		_ = state.UpdateAfterDotenvSetup("")
 	},
 }
 

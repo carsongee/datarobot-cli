@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/datarobot/cli/internal/repo"
 	"github.com/datarobot/cli/internal/version"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -37,15 +38,20 @@ type State struct {
 }
 
 // GetStatePath determines the appropriate location for the state file.
-// The state file is stored in .datarobot/cli directory within the current repository.
-func GetStatePath() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
+// The state file is stored in .datarobot/cli directory within the repository.
+// If repoRoot is empty, it will attempt to find the repository root using FindRepoRoot.
+func GetStatePath(repoRoot string) (string, error) {
+	var err error
+
+	if repoRoot == "" {
+		repoRoot, err = repo.FindRepoRoot()
+		if err != nil {
+			return "", err
+		}
 	}
 
 	// Use local .datarobot/cli directory
-	localPath := filepath.Join(cwd, localStateDir, cliSubDir)
+	localPath := filepath.Join(repoRoot, localStateDir, cliSubDir)
 	statePath := filepath.Join(localPath, stateFileName)
 
 	return statePath, nil
@@ -53,8 +59,9 @@ func GetStatePath() (string, error) {
 
 // Load reads the state file from the appropriate location.
 // Returns nil if the file doesn't exist (first run).
-func Load() (*State, error) {
-	statePath, err := GetStatePath()
+// If repoRoot is empty, it will attempt to find the repository root.
+func Load(repoRoot string) (*State, error) {
+	statePath, err := GetStatePath(repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -80,17 +87,19 @@ func Load() (*State, error) {
 
 // Update saves the state file and automatically sets the CLIVersion.
 // This should be the preferred method for saving state.
-func (s *State) Update() error {
+// If repoRoot is empty, it will attempt to find the repository root.
+func (s *State) Update(repoRoot string) error {
 	s.CLIVersion = version.Version
 
-	return Save(s)
+	return Save(s, repoRoot)
 }
 
 // Save writes the state file to the appropriate location.
 // Creates parent directories if they don't exist.
 // Note: Consider using Update() instead, which automatically sets CLIVersion.
-func Save(state *State) error {
-	statePath, err := GetStatePath()
+// If repoRoot is empty, it will attempt to find the repository root.
+func Save(state *State, repoRoot string) error {
+	statePath, err := GetStatePath(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -117,9 +126,10 @@ func Save(state *State) error {
 }
 
 // UpdateAfterSuccessfulRun creates or updates the state file after a successful `dr start` run.
-func UpdateAfterSuccessfulRun() error {
+// If repoRoot is empty, it will attempt to find the repository root.
+func UpdateAfterSuccessfulRun(repoRoot string) error {
 	// Load existing state to preserve other fields
-	existingState, err := Load()
+	existingState, err := Load(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -130,13 +140,14 @@ func UpdateAfterSuccessfulRun() error {
 
 	existingState.LastStart = time.Now().UTC()
 
-	return existingState.Update()
+	return existingState.Update(repoRoot)
 }
 
 // UpdateAfterDotenvSetup updates the state file after a successful `dr dotenv setup` run.
-func UpdateAfterDotenvSetup() error {
+// If repoRoot is empty, it will attempt to find the repository root.
+func UpdateAfterDotenvSetup(repoRoot string) error {
 	// Load existing state to preserve other fields
-	existingState, err := Load()
+	existingState, err := Load(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -148,13 +159,14 @@ func UpdateAfterDotenvSetup() error {
 	now := time.Now().UTC()
 	existingState.LastDotenvSetup = &now
 
-	return existingState.Update()
+	return existingState.Update(repoRoot)
 }
 
 // UpdateAfterTemplatesSetup updates the state file after a successful `dr templates setup` run.
-func UpdateAfterTemplatesSetup() error {
+// If repoRoot is empty, it will attempt to find the repository root.
+func UpdateAfterTemplatesSetup(repoRoot string) error {
 	// Load existing state to preserve other fields
-	existingState, err := Load()
+	existingState, err := Load(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -166,18 +178,19 @@ func UpdateAfterTemplatesSetup() error {
 	now := time.Now().UTC()
 	existingState.LastTemplatesSetup = &now
 
-	return existingState.Update()
+	return existingState.Update(repoRoot)
 }
 
 // HasCompletedDotenvSetup checks if dotenv setup has been completed in the past.
 // If force-interactive flag is set, this always returns false to force re-execution.
-func HasCompletedDotenvSetup() bool {
+// If repoRoot is empty, it will attempt to find the repository root.
+func HasCompletedDotenvSetup(repoRoot string) bool {
 	// Check if we should force the wizard to run
 	if viper.GetBool("force-interactive") {
 		return false
 	}
 
-	state, err := Load()
+	state, err := Load(repoRoot)
 	if err != nil || state == nil {
 		return false
 	}
