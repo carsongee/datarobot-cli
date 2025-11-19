@@ -93,7 +93,7 @@ func (suite *LoginModelTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (suite *LoginModelTestSuite) TestLoginModel_Init_Press_1() {
-	tm := suite.NewTestModel(NewModel(false))
+	tm := suite.NewTestModel(NewModel())
 
 	suite.WaitFor(tm, "US Cloud")
 	// US Cloud is already selected by default (first item)
@@ -114,7 +114,7 @@ func (suite *LoginModelTestSuite) TestLoginModel_Init_Press_1() {
 }
 
 func (suite *LoginModelTestSuite) TestLoginModel_Init_Press_2() {
-	tm := suite.NewTestModel(NewModel(false))
+	tm := suite.NewTestModel(NewModel())
 
 	suite.WaitFor(tm, "US Cloud")
 	// Navigate down to EU Cloud (second item)
@@ -136,7 +136,7 @@ func (suite *LoginModelTestSuite) TestLoginModel_Init_Press_2() {
 }
 
 func (suite *LoginModelTestSuite) TestLoginModel_Init_Press_3() {
-	tm := suite.NewTestModel(NewModel(false))
+	tm := suite.NewTestModel(NewModel())
 
 	suite.WaitFor(tm, "US Cloud")
 	// Navigate down to Japan Cloud (third item)
@@ -159,7 +159,7 @@ func (suite *LoginModelTestSuite) TestLoginModel_Init_Press_3() {
 }
 
 func (suite *LoginModelTestSuite) TestLoginModel_Init_Custom_URL() {
-	tm := suite.NewTestModel(NewModel(false))
+	tm := suite.NewTestModel(NewModel())
 
 	suite.WaitFor(tm, "US Cloud")
 	// Navigate down to Custom/On-Prem (fourth item)
@@ -191,7 +191,7 @@ func (suite *LoginModelTestSuite) TestLoginModel_Init_Custom_URL() {
 }
 
 func (suite *LoginModelTestSuite) TestLoginModel_Init_Non_URL() {
-	tm := suite.NewTestModel(NewModel(false))
+	tm := suite.NewTestModel(NewModel())
 
 	suite.WaitFor(tm, "US Cloud")
 	// Navigate down to Custom/On-Prem and enter it

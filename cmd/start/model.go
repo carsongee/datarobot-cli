@@ -10,7 +10,6 @@ package start
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -72,8 +71,7 @@ type stepErrorMsg struct {
 }
 
 type setupCompleteMsg struct {
-	clonedDir string
-	err       error
+	err error
 }
 
 // err messages used in the start command.
@@ -95,7 +93,6 @@ func NewStartModel(ctx context.Context, opts Options, repoRoot string) Model {
 			// TODO Implement validateEnvironment
 			// {description: "Validating environment...", fn: validateEnvironment},
 			{description: "Checking repository setup...", fn: checkRepository},
-			{description: "Running template setup if needed...", fn: templateSetupStep},
 			{description: "Finding and executing start command...", fn: findAndExecuteStart},
 		},
 		ctx:                  ctx,
@@ -177,22 +174,18 @@ func (m Model) execQuickstartScript() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-
-	// Handle template setup submodel if active
+	// Pass submodel updates onto the template setup model if active
 	if m.templateSetupActive && m.templateSetupModel != nil {
-		setupModel, cmd := m.templateSetupModel.Update(msg)
-		m.templateSetupModel = setupModel
+		// If this is the special setupCompleteMsg, let the parent handle it
+		if _, ok := msg.(setupCompleteMsg); !ok {
+			setupModel, cmd := m.templateSetupModel.Update(msg)
+			m.templateSetupModel = setupModel
 
-		// Check if submodel is done (implement a Done() method or similar)
-		if done, clonedDir := isTemplateSetupDone(setupModel); done {
-			m.templateSetupActive = false
-			m.templateSetupModel = nil
-			m.repoRoot = clonedDir
-			m.runSetup = false
-			return m, m.executeNextStep()
+			return m, cmd
 		}
-		return m, cmd
+		// otherwise fall through so the parent can process completion
 	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -214,6 +207,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 	case setupCompleteMsg:
+		// Deactivate template setup submodel before handling completion
+		clonedDir := m.templateSetupModel.(setup.Model).Clone.Dir
+
+		m.templateSetupActive = false
+		m.templateSetupModel = nil
+
 		if msg.err != nil {
 			m.err = fmt.Errorf("template setup failed: %w", msg.err)
 			m.quitting = true
@@ -221,18 +220,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Setup completed successfully, restart the start process with the cloned directory
-		if msg.clonedDir == "" {
-			// Setup was cancelled
+		if clonedDir == "" {
 			m.quitting = true
-
+			// TODO: Print out some messages here to inform the user what happened and what to do next
 			return m, tea.Quit
 		}
 
-		// Create a new start model with the cloned directory and restart
-		m2 := NewStartModel(m.ctx, m.opts, msg.clonedDir)
+		m.repoRoot = clonedDir
 
-		return m2, m2.Init()
+		return m.executeNextStep()
 	}
 
 	return m, nil
@@ -292,7 +288,7 @@ func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 
 	// If we need to run template setup, trigger it
 	if msg.runSetup {
-		m.runSetup = true
+		return templateSetup(m)
 	}
 
 	// If this step requires executing a script, do it now
@@ -321,6 +317,7 @@ func (m Model) View() string {
 	if m.templateSetupActive && m.templateSetupModel != nil {
 		return m.templateSetupModel.View()
 	}
+
 	var sb strings.Builder
 
 	sb.WriteString("\n")
@@ -433,27 +430,17 @@ func checkRepository(m *Model) tea.Msg {
 	return stepCompleteMsg{}
 }
 
-func templateSetupStep(m *Model) tea.Msg {
-	if !m.runSetup {
-		// No need to run setup, continue
-		return stepCompleteMsg{}
-	}
+func templateSetup(m Model) (Model, tea.Cmd) {
 	m.templateSetupActive = true
-	m.templateSetupModel = setup.NewModel(true)
-	return nil
-	clonedDir, err := setup.RunTeaFromStart(m.ctx, true)
-	if err != nil {
-		return stepErrorMsg{err: fmt.Errorf("template setup failed: %w", err)}
+
+	setupModel := setup.NewModel()
+	setupModel.SuccessCmd = func() tea.Msg {
+		// Return a setupCompleteMsg which the parent model will handle.
+		return setupCompleteMsg{}
 	}
+	m.templateSetupModel = setupModel
 
-	if clonedDir == "" {
-		// User cancelled
-		return stepErrorMsg{err: errors.New("template setup cancelled")}
-	}
-
-	m.repoRoot = clonedDir
-
-	return stepCompleteMsg{message: "Template setup complete.\n"}
+	return m, setupModel.Init()
 }
 
 func findAndExecuteStart(m *Model) tea.Msg {
@@ -590,11 +577,4 @@ func isExecutable(path string, info os.FileInfo) bool {
 	// On Unix-like systems, check execute permission bits
 	// 0o111 checks if any execute bit is set (user, group, or other)
 	return info.Mode()&0o111 != 0
-}
-
-func isTemplateSetupDone(sub tea.Model) (bool, string) {
-	if setupModel, ok := sub.(setup.Model); ok && setupModel.Done {
-		return true, setupModel.clone.Dir
-	}
-	return false, ""
 }

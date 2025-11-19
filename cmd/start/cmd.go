@@ -50,9 +50,7 @@ The following actions will be performed:
 
 			_, err := p.Run()
 
-			}
-
-			return nil
+			return err
 		},
 	}
 

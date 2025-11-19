@@ -36,7 +36,7 @@ var Cmd = &cobra.Command{
 
 💡 Perfect for first-time users or someone starting a new project.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		return RunTea(cmd.Context(), false)
+		return RunTea(cmd.Context())
 	},
 }
 
@@ -72,17 +72,5 @@ func RunTea(ctx context.Context) error {
 		}
 	}
 
-	finalModel, err := p.Run()
-	if err != nil {
-		return "", err
-	}
-
-	// Extract the cloned directory from the model
-	if interruptibleModel, ok := finalModel.(tui.InterruptibleModel); ok {
-		if setupModel, ok := interruptibleModel.Model.(Model); ok {
-			return setupModel.clone.Dir, nil
-		}
-	}
-
-	return "", nil
+	return err
 }

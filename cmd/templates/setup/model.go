@@ -63,7 +63,7 @@ type Model struct {
 	hostModel            HostModel
 	login                LoginModel
 	list                 list.Model
-	clone                clone.Model
+	Clone                clone.Model
 	dotenv               dotenv.Model
 	SuccessCmd           tea.Cmd // Command to run on successful completion
 }
@@ -269,7 +269,7 @@ func NewModel() Model {
 		list: list.Model{
 			SuccessCmd: templateSelected,
 		},
-		clone: clone.Model{
+		Clone: clone.Model{
 			SuccessCmd: templateCloned,
 			BackCmd:    backToList,
 		},
@@ -367,9 +367,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint: cyclop
 	case templateSelectedMsg:
 		m.screen = cloneScreen
 		m.template = m.list.Template
-		m.clone.SetTemplate(m.template)
+		m.Clone.SetTemplate(m.template)
 
-		return m, m.clone.Init()
+		return m, m.Clone.Init()
 	case backToListMsg:
 		m.screen = listScreen
 
@@ -385,7 +385,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint: cyclop
 		m.isLoading = false
 		m.loadingMessage = ""
 		m.screen = dotenvScreen
-		m.dotenv.DotenvFile = filepath.Join(m.clone.Dir, ".env")
+		m.dotenv.DotenvFile = filepath.Join(m.Clone.Dir, ".env")
 		m.dotenvSetupCompleted = true
 
 		return m, m.dotenv.Init()
@@ -408,11 +408,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint: cyclop
 		// Update state if dotenv setup was completed
 		// Pass the cloned directory to state functions instead of changing working directory
 		if m.dotenvSetupCompleted {
-			_ = state.UpdateAfterDotenvSetup(m.clone.Dir)
+			_ = state.UpdateAfterDotenvSetup(m.Clone.Dir)
 		}
 
 		// Update state for templates setup completion
-		_ = state.UpdateAfterTemplatesSetup(m.clone.Dir)
+		_ = state.UpdateAfterTemplatesSetup(m.Clone.Dir)
 
 		return m.completionCmd(true)
 	case exitMsg:
@@ -451,10 +451,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint: cyclop
 
 		return m, cmd
 	case cloneScreen:
-		m.clone, cmd = m.clone.Update(msg)
+		m.Clone, cmd = m.Clone.Update(msg)
 
 		// Show loading status when cloning starts
-		if m.clone.IsCloning() && !m.isLoading {
+		if m.Clone.IsCloning() && !m.isLoading {
 			m.isLoading = true
 			m.loadingMessage = "Cloning template to your computer..."
 		}
@@ -556,7 +556,7 @@ func (m Model) View() string { //nolint: cyclop
 	case listScreen:
 		sb.WriteString(m.list.View())
 	case cloneScreen:
-		sb.WriteString(m.clone.View())
+		sb.WriteString(m.Clone.View())
 	case dotenvScreen:
 		sb.WriteString(m.dotenv.View())
 	case exitScreen:
@@ -589,10 +589,10 @@ func (m Model) View() string { //nolint: cyclop
 		// 	sb.WriteString(tui.BaseTextStyle.Render(" to see all the additional commands"))
 		// 	sb.WriteString("\n")
 		// } else {
-		if m.clone.Dir != "" {
+		if m.Clone.Dir != "" {
 			sb.WriteString(tui.BaseTextStyle.Render("To navigate to the project directory, use the following command:"))
 			sb.WriteString("\n\n")
-			sb.WriteString(tui.InfoStyle.Render("cd " + m.clone.Dir))
+			sb.WriteString(tui.InfoStyle.Render("cd " + m.Clone.Dir))
 			sb.WriteString("\n\n")
 			sb.WriteString(tui.BaseTextStyle.Render("afterward get started with: "))
 			sb.WriteString(tui.InfoStyle.Render("dr start"))
@@ -633,8 +633,10 @@ func (m Model) completionCmd(exitAltScreen bool) (Model, tea.Cmd) {
 	if m.SuccessCmd != nil {
 		return m, m.SuccessCmd
 	}
+
 	if exitAltScreen {
 		return m, tea.Sequence(tea.ExitAltScreen, tea.Quit)
 	}
+
 	return m, tea.Quit
 }
