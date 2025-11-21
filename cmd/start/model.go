@@ -11,6 +11,7 @@ package start
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,20 @@ type Model struct {
 	templateSetupModel   tea.Model // Template setup model if active
 }
 
+// lastNLines returns the last n lines from s (joined by \n). If s has fewer than n lines, returns s.
+func lastNLines(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
 type stepCompleteMsg struct {
 	message              string // Optional message to display to the user
 	waiting              bool   // Whether to wait for user input before proceeding
@@ -64,6 +79,11 @@ type stepCompleteMsg struct {
 
 type scriptCompleteMsg struct {
 	output string
+}
+
+type streamOutputMsg struct {
+	chunk   string
+	nextCmd tea.Cmd
 }
 
 type stepErrorMsg struct {
@@ -78,6 +98,7 @@ type setupCompleteMsg struct {
 const (
 	errScriptSearchFailed = "Failed to search for quickstart script: %w"
 	preExecutionDelay     = 200 * time.Millisecond // Brief delay before executing scripts to avoid glitchy screen resets
+	taskStartKey          = "task-start"
 )
 
 var (
@@ -147,7 +168,7 @@ func (m Model) execQuickstartScript() tea.Cmd {
 	return func() tea.Msg {
 		var cmd *exec.Cmd
 
-		if m.quickstartScriptPath == "task-start" {
+		if m.quickstartScriptPath == taskStartKey {
 			taskPath, err := exec.LookPath("task")
 			if err != nil {
 				taskPath = "task"
@@ -162,14 +183,59 @@ func (m Model) execQuickstartScript() tea.Cmd {
 			cmd.Dir = m.repoRoot
 		}
 
-		output, err := cmd.CombinedOutput()
+		// Use a pipe to capture merged stdout/stderr so we can stream output
+		pr, pw := io.Pipe()
+		cmd.Stdout = pw
+		cmd.Stderr = pw
 
-		outStr := string(output)
-		if err != nil {
-			outStr += "\nError: " + err.Error()
+		if err := cmd.Start(); err != nil {
+			_ = pw.Close()
+			_ = pr.Close()
+
+			outStr := fmt.Sprintf("Error starting command: %v", err)
+
+			return scriptCompleteMsg{output: outStr}
 		}
 
-		return scriptCompleteMsg{output: outStr}
+		// Wait for the command to finish in background and close the writer
+		go func() {
+			_ = cmd.Wait()
+
+			// Closing the writer will cause reads on pr to return EOF when drained
+			_ = pw.Close()
+		}()
+
+		// Create a read-chunk command that reads up to N bytes from the pipe
+		var readCmd tea.Cmd
+
+		readFunc := func() tea.Msg {
+			buf := make([]byte, 2048)
+
+			n, err := pr.Read(buf)
+			if err != nil {
+				if err == io.EOF {
+					// Process finished and all output has been read
+					_ = pr.Close()
+
+					return scriptCompleteMsg{output: ""}
+				}
+
+				// Return an error completion message
+				outStr := fmt.Sprintf("Error reading process output: %v", err)
+				_ = pr.Close()
+
+				return scriptCompleteMsg{output: outStr}
+			}
+
+			chunk := string(buf[:n])
+
+			return streamOutputMsg{chunk: chunk, nextCmd: readCmd}
+		}
+
+		readCmd = func() tea.Msg { return readFunc() }
+
+		// Start streaming by returning the first read command
+		return readCmd()
 	}
 }
 
@@ -201,11 +267,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptCompleteMsg:
 		// Script execution completed, update state and show output
-		m.processOutput = msg.output
+		m.processOutput += msg.output
+
+		// Keep only the last 20 lines to limit memory and UI size
+		m.processOutput = lastNLines(m.processOutput, 20)
+
 		_ = state.UpdateAfterSuccessfulRun(m.repoRoot)
+
 		m.done = true
 
 		return m, nil
+	case streamOutputMsg:
+		// Append chunk to the process output and continue streaming
+		m.processOutput += msg.chunk
+
+		// Keep only the last 20 lines
+		m.processOutput = lastNLines(m.processOutput, 20)
+
+		return m, msg.nextCmd
 	case setupCompleteMsg:
 		// Deactivate template setup submodel before handling completion
 		clonedDir := m.templateSetupModel.(setup.Model).Clone.Dir
@@ -214,9 +293,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.templateSetupModel = nil
 
 		if msg.err != nil {
-			m.err = fmt.Errorf("template setup failed: %w", msg.err)
-			m.quitting = true
-
 			return m, nil
 		}
 
@@ -357,7 +433,7 @@ func (m Model) View() string {
 		sb.WriteString("\n")
 		sb.WriteString(tui.BaseTextStyle.Render("Output from start command:"))
 		sb.WriteString("\n")
-		sb.WriteString(tui.DimStyle.Render(m.processOutput))
+		sb.WriteString(tui.DimStyle.Render(lastNLines(m.processOutput, 20)))
 		sb.WriteString("\n")
 	}
 
@@ -473,10 +549,12 @@ func findAndExecuteStart(m *Model) tea.Msg {
 		// Add a brief delay before executing to avoid glitchy screen resets
 		time.Sleep(preExecutionDelay)
 
+		waitForConfirmation := !m.opts.AnswerYes
 		// Run 'task start' as an external command
 		return stepCompleteMsg{
 			message:              "Running 'task start'...\n",
-			quickstartScriptPath: "task-start", // Special marker for task start
+			quickstartScriptPath: taskStartKey, // Special marker for task start
+			waiting:              waitForConfirmation,
 			executeScript:        true,
 		}
 	}
