@@ -23,6 +23,9 @@ const CliName = "dr"
 
 const AppName = "DataRobot CLI"
 
+// CliAliases are additional binary names that should also have shell completions installed.
+var CliAliases = []string{"datarobot"}
+
 var Version = "dev"
 
 // GitCommit is the commit hash of the current version.

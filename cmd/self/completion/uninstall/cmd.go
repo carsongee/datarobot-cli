@@ -204,6 +204,41 @@ func performUninstall(shell internalShell.Shell) error {
 	return nil
 }
 
+func zshCompletionPaths(homeDir string) []string {
+	dirs := []string{
+		filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions"),
+		filepath.Join(homeDir, ".zsh", "completions"),
+	}
+
+	names := []string{"_" + version.CliName}
+
+	for _, alias := range version.CliAliases {
+		names = append(names, "_"+alias)
+	}
+
+	var paths []string
+
+	for _, dir := range dirs {
+		for _, name := range names {
+			paths = append(paths, filepath.Join(dir, name))
+		}
+	}
+
+	return paths
+}
+
+func fishCompletionPaths(homeDir string) []string {
+	base := filepath.Join(homeDir, ".config", "fish", "completions")
+
+	paths := []string{filepath.Join(base, version.CliName+".fish")}
+
+	for _, alias := range version.CliAliases {
+		paths = append(paths, filepath.Join(base, alias+".fish"))
+	}
+
+	return paths
+}
+
 func getUninstallPaths(shell internalShell.Shell) []string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -212,21 +247,13 @@ func getUninstallPaths(shell internalShell.Shell) []string {
 
 	switch shell {
 	case internalShell.Zsh:
-		return []string{
-			filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_"+version.CliName),
-			filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_datarobot"),
-			filepath.Join(homeDir, ".zsh", "completions", "_"+version.CliName),
-			filepath.Join(homeDir, ".zsh", "completions", "_datarobot"),
-		}
+		return zshCompletionPaths(homeDir)
 	case internalShell.Bash:
 		return []string{
 			filepath.Join(homeDir, ".bash_completions", version.CliName),
 		}
 	case internalShell.Fish:
-		return []string{
-			filepath.Join(homeDir, ".config", "fish", "completions", version.CliName+".fish"),
-			filepath.Join(homeDir, ".config", "fish", "completions", "datarobot.fish"),
-		}
+		return fishCompletionPaths(homeDir)
 	case internalShell.PowerShell:
 		var paths []string
 
@@ -271,6 +298,17 @@ func promptForUninstallConfirmation() (bool, error) {
 	return true, nil
 }
 
+func removeFile(path string) bool {
+	if !fsutil.FileExists(path) {
+		return false
+	}
+
+	_ = os.Remove(path)
+	fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path)
+
+	return true
+}
+
 func uninstallZsh() bool {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -279,41 +317,12 @@ func uninstallZsh() bool {
 
 	var removed bool
 
-	// Oh-My-Zsh location
-	path1 := filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_"+version.CliName)
-	if fsutil.FileExists(path1) {
-		_ = os.Remove(path1)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path1)
-
-		removed = true
+	for _, path := range zshCompletionPaths(homeDir) {
+		if removeFile(path) {
+			removed = true
+		}
 	}
 
-	aliasPath1 := filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_datarobot")
-	if fsutil.FileExists(aliasPath1) {
-		_ = os.Remove(aliasPath1)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), aliasPath1)
-
-		removed = true
-	}
-
-	// Standard Zsh location
-	path2 := filepath.Join(homeDir, ".zsh", "completions", "_"+version.CliName)
-	if fsutil.FileExists(path2) {
-		_ = os.Remove(path2)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path2)
-
-		removed = true
-	}
-
-	aliasPath2 := filepath.Join(homeDir, ".zsh", "completions", "_datarobot")
-	if fsutil.FileExists(aliasPath2) {
-		_ = os.Remove(aliasPath2)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), aliasPath2)
-
-		removed = true
-	}
-
-	// Clear cache
 	if removed {
 		cachePattern := filepath.Join(homeDir, ".zcompdump*")
 
@@ -332,15 +341,7 @@ func uninstallBash() bool {
 		homeDir = ""
 	}
 
-	path := filepath.Join(homeDir, ".bash_completions", version.CliName)
-	if fsutil.FileExists(path) {
-		_ = os.Remove(path)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path)
-
-		return true
-	}
-
-	return false
+	return removeFile(filepath.Join(homeDir, ".bash_completions", version.CliName))
 }
 
 func uninstallFish() bool {
@@ -351,20 +352,10 @@ func uninstallFish() bool {
 
 	var removed bool
 
-	path := filepath.Join(homeDir, ".config", "fish", "completions", version.CliName+".fish")
-	if fsutil.FileExists(path) {
-		_ = os.Remove(path)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path)
-
-		removed = true
-	}
-
-	aliasPath := filepath.Join(homeDir, ".config", "fish", "completions", "datarobot.fish")
-	if fsutil.FileExists(aliasPath) {
-		_ = os.Remove(aliasPath)
-		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), aliasPath)
-
-		removed = true
+	for _, path := range fishCompletionPaths(homeDir) {
+		if removeFile(path) {
+			removed = true
+		}
 	}
 
 	return removed
@@ -414,6 +405,20 @@ func removePowerShellCompletionFromProfile(profilePath string) bool {
 	return true
 }
 
+func isCompletionMarker(line string) bool {
+	if strings.Contains(line, "# "+version.CliName+" completion") {
+		return true
+	}
+
+	for _, alias := range version.CliAliases {
+		if strings.Contains(line, "# "+alias+" alias completion") {
+			return true
+		}
+	}
+
+	return false
+}
+
 func removeCompletionSection(content string) string {
 	lines := strings.Split(content, "\n")
 	newLines := make([]string, 0, len(lines))
@@ -427,8 +432,7 @@ func removeCompletionSection(content string) string {
 		}
 
 		// Look for the completion comment
-		if strings.Contains(line, "# "+version.CliName+" completion") ||
-			strings.Contains(line, "# datarobot alias completion") {
+		if isCompletionMarker(line) {
 			// Skip this line and the next 3 lines (the if block)
 			skipNext = 3
 

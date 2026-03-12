@@ -153,7 +153,7 @@ function Remove-Completions {
         $content = Get-Content $profilePath -Raw
 
         # Check if profile has dr completion reference
-        if ($content -match "$BINARY_NAME completion powershell|$BINARY_NAME\.ps1") {
+        if ($content -match [regex]::Escape("$BINARY_NAME completion powershell")) {
             Write-Step "Found completion reference in PowerShell profile"
 
             try {
@@ -161,13 +161,32 @@ function Remove-Completions {
                 $backupPath = "$profilePath.bak.$(Get-Date -Format 'yyyyMMdd_HHmmss')"
                 Copy-Item $profilePath $backupPath
 
-                # Remove lines containing dr completion
-                $newContent = ($content -split "`n" | Where-Object {
-                    $_ -notmatch "$BINARY_NAME completion powershell" -and
-                    $_ -notmatch "$BINARY_NAME\.ps1" -and
-                    $_ -notmatch "Added by DataRobot CLI installer"
-                }) -join "`n"
+                # Remove completion blocks using the same block-aware logic as the Go uninstaller.
+                # When a marker comment is found (e.g. "# dr completion" or "# datarobot alias completion"),
+                # skip that line plus the next 3 lines (if (...) {, body, }) and trim any preceding blank line.
+                $lines = $content -split "`n"
+                $newLines = [System.Collections.Generic.List[string]]::new()
+                $skipCount = 0
 
+                foreach ($line in $lines) {
+                    if ($skipCount -gt 0) {
+                        $skipCount--
+                        continue
+                    }
+
+                    $isMarker = ($line -match "# $BINARY_NAME completion") -or ($line -match "# .+ alias completion")
+                    if ($isMarker) {
+                        $skipCount = 3
+                        if ($newLines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($newLines[$newLines.Count - 1])) {
+                            $newLines.RemoveAt($newLines.Count - 1)
+                        }
+                        continue
+                    }
+
+                    $newLines.Add($line)
+                }
+
+                $newContent = $newLines -join "`n"
                 Set-Content -Path $profilePath -Value $newContent
                 Write-Success "Removed completion from PowerShell profile"
                 $removed = $true

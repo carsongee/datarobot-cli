@@ -143,7 +143,7 @@ func TestGetUninstallPaths(t *testing.T) {
 		{
 			name:          "zsh paths",
 			shell:         internalShell.Zsh,
-			expectedCount: 2,
+			expectedCount: 4,
 			checkPath:     ".oh-my-zsh",
 		},
 		{
@@ -155,7 +155,7 @@ func TestGetUninstallPaths(t *testing.T) {
 		{
 			name:          "fish paths",
 			shell:         internalShell.Fish,
-			expectedCount: 1,
+			expectedCount: 2,
 			checkPath:     ".config/fish",
 		},
 		{

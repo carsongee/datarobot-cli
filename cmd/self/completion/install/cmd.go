@@ -281,21 +281,21 @@ func installZsh(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) {
 			}
 		}
 
-		// Install alias completion for 'datarobot'
-		aliasPath := filepath.Join(compDir, "_datarobot")
-
-		af, err := os.Create(aliasPath)
-		if err != nil {
-			return err
-		}
-		defer af.Close()
-
-		_, err = fmt.Fprintf(af, "#compdef datarobot\n_%s \"$@\"\n", version.CliName)
-
-		return err
+		return installZshAliases(compDir)
 	}
 
 	return installPath, installFunc
+}
+
+func installZshAliases(compDir string) error {
+	for _, alias := range version.CliAliases {
+		content := fmt.Sprintf("#compdef %s\n_%s \"$@\"\n", alias, version.CliName)
+		if err := os.WriteFile(filepath.Join(compDir, "_"+alias), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func installBash(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) {
@@ -357,9 +357,10 @@ func installBash(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) 
 			return err
 		}
 
-		// Append alias for 'datarobot'
-		if _, err := fmt.Fprintf(f, "\ncomplete -o default -F __start_%s datarobot\n", version.CliName); err != nil {
-			return err
+		for _, alias := range version.CliAliases {
+			if _, err := fmt.Fprintf(f, "\ncomplete -o default -F __start_%s %s\n", version.CliName, alias); err != nil {
+				return err
+			}
 		}
 
 		// Add sourcing to bashrc if not already there
@@ -435,21 +436,39 @@ func installFish(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) 
 			return err
 		}
 
-		// Install alias completion for 'datarobot'
-		aliasPath := filepath.Join(compDir, "datarobot.fish")
-
-		af, err := os.Create(aliasPath)
-		if err != nil {
-			return err
+		for _, alias := range version.CliAliases {
+			content := fmt.Sprintf("complete --command %s --wraps %s\n", alias, version.CliName)
+			if err := os.WriteFile(filepath.Join(compDir, alias+".fish"), []byte(content), 0o644); err != nil {
+				return err
+			}
 		}
-		defer af.Close()
 
-		_, err = fmt.Fprintf(af, "complete --command datarobot --wraps %s\n", version.CliName)
-
-		return err
+		return nil
 	}
 
 	return installPath, installFunc
+}
+
+func missingPowerShellBlocks(existingContent string) string {
+	var sb strings.Builder
+
+	if !strings.Contains(existingContent, version.CliName+" completion powershell") {
+		fmt.Fprintf(&sb, "\n# %s completion\n", version.CliName)
+		fmt.Fprintf(&sb, "if (Get-Command %s -ErrorAction SilentlyContinue) {\n", version.CliName)
+		fmt.Fprintf(&sb, "    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
+		sb.WriteString("}\n")
+	}
+
+	for _, alias := range version.CliAliases {
+		if !strings.Contains(existingContent, fmt.Sprintf("# %s alias completion", alias)) {
+			fmt.Fprintf(&sb, "\n# %s alias completion\n", alias)
+			fmt.Fprintf(&sb, "if (Get-Command %s -ErrorAction SilentlyContinue) {\n", alias)
+			fmt.Fprintf(&sb, "    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
+			sb.WriteString("}\n")
+		}
+	}
+
+	return sb.String()
 }
 
 func installPowerShell(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) {
@@ -461,41 +480,37 @@ func installPowerShell(_ *cobra.Command, _ bool) (string, func(*cobra.Command) e
 	installFunc := func(rootCmd *cobra.Command) error {
 		// Ensure the directory exists
 		profileDir := filepath.Dir(profilePath)
+
 		if err := os.MkdirAll(profileDir, 0o755); err != nil {
 			return fmt.Errorf("Failed to create PowerShell profile directory: %w", err)
 		}
 
-		// Create or append to profile
-		completionScript := fmt.Sprintf("\n# %s completion\n", version.CliName)
-		completionScript += fmt.Sprintf("if (Get-Command %s -ErrorAction SilentlyContinue) {\n", version.CliName)
-		completionScript += fmt.Sprintf("    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
-		completionScript += "}\n"
-		completionScript += "\n# datarobot alias completion\n"
-		completionScript += "if (Get-Command datarobot -ErrorAction SilentlyContinue) {\n"
-		completionScript += fmt.Sprintf("    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
-		completionScript += "}\n"
+		// Read existing profile content to detect which blocks are already installed.
+		var existingContent string
 
-		// Check if profile exists and if completion is already set up
 		if fsutil.FileExists(profilePath) {
-			content, err := os.ReadFile(profilePath)
+			data, err := os.ReadFile(profilePath)
 			if err != nil {
 				return fmt.Errorf("Failed to read PowerShell profile: %w", err)
 			}
 
-			// Check if completion is already configured
-			if strings.Contains(string(content), version.CliName+" completion powershell") {
-				return nil // Already installed
-			}
+			existingContent = string(data)
 		}
 
-		// Append to profile
+		missingScript := missingPowerShellBlocks(existingContent)
+
+		if missingScript == "" {
+			return nil // Already fully installed
+		}
+
+		// Append missing blocks to profile
 		f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return fmt.Errorf("Failed to open PowerShell profile: %w", err)
 		}
 		defer f.Close()
 
-		if _, err = f.WriteString(completionScript); err != nil {
+		if _, err = f.WriteString(missingScript); err != nil {
 			return fmt.Errorf("Failed to write to PowerShell profile: %w", err)
 		}
 
