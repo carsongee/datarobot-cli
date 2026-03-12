@@ -214,7 +214,9 @@ func getUninstallPaths(shell internalShell.Shell) []string {
 	case internalShell.Zsh:
 		return []string{
 			filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_"+version.CliName),
+			filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_datarobot"),
 			filepath.Join(homeDir, ".zsh", "completions", "_"+version.CliName),
+			filepath.Join(homeDir, ".zsh", "completions", "_datarobot"),
 		}
 	case internalShell.Bash:
 		return []string{
@@ -223,6 +225,7 @@ func getUninstallPaths(shell internalShell.Shell) []string {
 	case internalShell.Fish:
 		return []string{
 			filepath.Join(homeDir, ".config", "fish", "completions", version.CliName+".fish"),
+			filepath.Join(homeDir, ".config", "fish", "completions", "datarobot.fish"),
 		}
 	case internalShell.PowerShell:
 		var paths []string
@@ -285,11 +288,27 @@ func uninstallZsh() bool {
 		removed = true
 	}
 
+	aliasPath1 := filepath.Join(homeDir, ".oh-my-zsh", "custom", "completions", "_datarobot")
+	if fsutil.FileExists(aliasPath1) {
+		_ = os.Remove(aliasPath1)
+		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), aliasPath1)
+
+		removed = true
+	}
+
 	// Standard Zsh location
 	path2 := filepath.Join(homeDir, ".zsh", "completions", "_"+version.CliName)
 	if fsutil.FileExists(path2) {
 		_ = os.Remove(path2)
 		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path2)
+
+		removed = true
+	}
+
+	aliasPath2 := filepath.Join(homeDir, ".zsh", "completions", "_datarobot")
+	if fsutil.FileExists(aliasPath2) {
+		_ = os.Remove(aliasPath2)
+		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), aliasPath2)
 
 		removed = true
 	}
@@ -330,15 +349,25 @@ func uninstallFish() bool {
 		homeDir = ""
 	}
 
+	var removed bool
+
 	path := filepath.Join(homeDir, ".config", "fish", "completions", version.CliName+".fish")
 	if fsutil.FileExists(path) {
 		_ = os.Remove(path)
 		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), path)
 
-		return true
+		removed = true
 	}
 
-	return false
+	aliasPath := filepath.Join(homeDir, ".config", "fish", "completions", "datarobot.fish")
+	if fsutil.FileExists(aliasPath) {
+		_ = os.Remove(aliasPath)
+		fmt.Printf("%s Removed: %s\n", successStyle.Render("✓"), aliasPath)
+
+		removed = true
+	}
+
+	return removed
 }
 
 func uninstallPowerShell() bool {
@@ -398,7 +427,8 @@ func removeCompletionSection(content string) string {
 		}
 
 		// Look for the completion comment
-		if strings.Contains(line, "# "+version.CliName+" completion") {
+		if strings.Contains(line, "# "+version.CliName+" completion") ||
+			strings.Contains(line, "# datarobot alias completion") {
 			// Skip this line and the next 3 lines (the if block)
 			skipNext = 3
 

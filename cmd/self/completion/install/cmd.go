@@ -281,7 +281,18 @@ func installZsh(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) {
 			}
 		}
 
-		return nil
+		// Install alias completion for 'datarobot'
+		aliasPath := filepath.Join(compDir, "_datarobot")
+
+		af, err := os.Create(aliasPath)
+		if err != nil {
+			return err
+		}
+		defer af.Close()
+
+		_, err = fmt.Fprintf(af, "#compdef datarobot\n_%s \"$@\"\n", version.CliName)
+
+		return err
 	}
 
 	return installPath, installFunc
@@ -343,6 +354,11 @@ func installBash(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) 
 
 		// Generate completion
 		if err := rootCmd.GenBashCompletion(f); err != nil {
+			return err
+		}
+
+		// Append alias for 'datarobot'
+		if _, err := fmt.Fprintf(f, "\ncomplete -o default -F __start_%s datarobot\n", version.CliName); err != nil {
 			return err
 		}
 
@@ -415,7 +431,22 @@ func installFish(_ *cobra.Command, _ bool) (string, func(*cobra.Command) error) 
 		defer f.Close()
 
 		// Generate completion
-		return rootCmd.GenFishCompletion(f, true)
+		if err := rootCmd.GenFishCompletion(f, true); err != nil {
+			return err
+		}
+
+		// Install alias completion for 'datarobot'
+		aliasPath := filepath.Join(compDir, "datarobot.fish")
+
+		af, err := os.Create(aliasPath)
+		if err != nil {
+			return err
+		}
+		defer af.Close()
+
+		_, err = fmt.Fprintf(af, "complete --command datarobot --wraps %s\n", version.CliName)
+
+		return err
 	}
 
 	return installPath, installFunc
@@ -437,6 +468,10 @@ func installPowerShell(_ *cobra.Command, _ bool) (string, func(*cobra.Command) e
 		// Create or append to profile
 		completionScript := fmt.Sprintf("\n# %s completion\n", version.CliName)
 		completionScript += fmt.Sprintf("if (Get-Command %s -ErrorAction SilentlyContinue) {\n", version.CliName)
+		completionScript += fmt.Sprintf("    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
+		completionScript += "}\n"
+		completionScript += "\n# datarobot alias completion\n"
+		completionScript += "if (Get-Command datarobot -ErrorAction SilentlyContinue) {\n"
 		completionScript += fmt.Sprintf("    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
 		completionScript += "}\n"
 

@@ -286,6 +286,15 @@ function Install-Binary {
             Write-ErrorMsg "Failed to install binary. Do you have write permissions to $INSTALL_DIR?"
         }
 
+        # Create datarobot alias
+        $aliasPath = Join-Path $INSTALL_DIR "datarobot.exe"
+        Write-Step "Creating 'datarobot' alias..."
+        try {
+            New-Item -ItemType HardLink -Path $aliasPath -Target $binaryPath -Force | Out-Null
+        } catch {
+            Copy-Item -Path $binaryPath -Destination $aliasPath -Force
+        }
+
     } finally {
         # Clean up
         Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue

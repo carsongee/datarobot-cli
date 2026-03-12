@@ -293,6 +293,10 @@ download_and_install() {
     if ! chmod +x "$INSTALL_DIR/$BINARY_NAME"; then
         error "Failed to make binary executable"
     fi
+
+    # Create datarobot alias
+    step "Creating 'datarobot' alias..."
+    ln -sf "$BINARY_NAME" "$INSTALL_DIR/datarobot"
 }
 
 # Show PATH configuration instructions

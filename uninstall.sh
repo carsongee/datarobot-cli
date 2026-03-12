@@ -69,6 +69,12 @@ remove_binary() {
     else
         error "Failed to remove binary. Do you have write permissions to $INSTALL_DIR?"
     fi
+
+    # Remove datarobot alias if present
+    if [ -e "$INSTALL_DIR/datarobot" ] || [ -L "$INSTALL_DIR/datarobot" ]; then
+        rm -f "$INSTALL_DIR/datarobot"
+        printf "   ${GREEN}✓${NC} 'datarobot' alias removed\n"
+    fi
 }
 
 # Remove PATH entries from shell profiles

@@ -79,6 +79,13 @@ function Remove-Binary {
         Remove-Item -Path $binaryPath -Force -ErrorAction Stop
         Write-Success "Binary removed"
 
+        # Remove datarobot alias if present
+        $aliasPath = Join-Path $INSTALL_DIR "datarobot.exe"
+        if (Test-Path $aliasPath) {
+            Remove-Item -Path $aliasPath -Force -ErrorAction SilentlyContinue
+            Write-Success "'datarobot' alias removed"
+        }
+
         # Remove directory if empty
         $files = Get-ChildItem -Path $INSTALL_DIR -ErrorAction SilentlyContinue
         if (-not $files) {

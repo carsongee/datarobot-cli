@@ -17,6 +17,7 @@ set -e
 export TERM="dumb"
 INSTALL_DIR="$HOME/.local/bin"
 DR_BIN="$INSTALL_DIR/dr"
+DATAROBOT_BIN="$INSTALL_DIR/datarobot"
 OLD_VERSION="v0.2.40"
 
 # ──────────────────────────────────────────────────────────────
@@ -24,6 +25,16 @@ OLD_VERSION="v0.2.40"
 # ──────────────────────────────────────────────────────────────
 cleanup_curl_install() {
     rm -f "$DR_BIN"
+    rm -f "$DATAROBOT_BIN"
+}
+
+check_datarobot_alias() {
+    if [[ -x "$DATAROBOT_BIN" ]]; then
+        echo "✅ 'datarobot' alias exists at $DATAROBOT_BIN."
+    else
+        echo "❌ 'datarobot' alias not found at $DATAROBOT_BIN."
+        exit 1
+    fi
 }
 
 get_installed_version() {
@@ -55,6 +66,8 @@ test_curl_latest_self_update() {
 
     echo "Installing latest via curl..."
     curl -fsSL https://raw.githubusercontent.com/datarobot-oss/cli/main/install.sh | INSTALL_DIR="$INSTALL_DIR" sh
+
+    check_datarobot_alias
 
     version_before=$(get_installed_version)
     echo "Version after curl install: $version_before"
@@ -99,6 +112,8 @@ test_curl_old_version_self_update() {
 
     version_before=$(get_installed_version)
     echo "Version after curl install: $version_before"
+
+    check_datarobot_alias
 
     latest_version=$(get_latest_version)
     echo "Latest release version: $latest_version"
@@ -228,6 +243,8 @@ test_template_min_version_noop() {
     # Install latest via curl
     echo "Installing latest via curl..."
     curl -fsSL https://raw.githubusercontent.com/datarobot-oss/cli/main/install.sh | INSTALL_DIR="$INSTALL_DIR" sh
+
+    check_datarobot_alias
 
     version_installed=$(get_installed_version)
     echo "Installed version: $version_installed"
