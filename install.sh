@@ -254,40 +254,45 @@ download_and_install() {
     ARCHIVE_NAME="${BINARY_NAME}_${VERSION}_${OS}_${ARCH}.tar.gz"
     DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE_NAME"
 
-    step "Downloading from GitHub..."
-    printf "   ${DOWNLOAD_URL}\n"
-
-    # Create temporary directory
-    TMP_DIR=$(mktemp -d)
-    trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
-
-    # Download archive
-    if command -v curl >/dev/null 2>&1; then
-        if ! curl --fail --location --progress-bar "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE_NAME"; then
-            error "Failed to download binary. Please check the version exists: https://github.com/$REPO/releases"
-        fi
-    else
-        if ! wget --show-progress -q "$DOWNLOAD_URL" -O "$TMP_DIR/$ARCHIVE_NAME"; then
-            error "Failed to download binary. Please check the version exists: https://github.com/$REPO/releases"
-        fi
-    fi
-
-    # Extract archive
-    step "Extracting binary..."
-    if ! tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$TMP_DIR"; then
-        error "Failed to extract archive"
-    fi
-
     # Create install directory if it doesn't exist
     if [ ! -d "$INSTALL_DIR" ]; then
         step "Creating install directory: $INSTALL_DIR"
         mkdir -p "$INSTALL_DIR" || error "Failed to create install directory: $INSTALL_DIR"
     fi
 
-    # Install binary
-    step "Installing binary to $INSTALL_DIR/$BINARY_NAME..."
-    if ! mv "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"; then
-        error "Failed to install binary. Do you have write permissions to $INSTALL_DIR?"
+    if [ -n "$LOCAL_BINARY" ]; then
+        step "Installing local binary from $LOCAL_BINARY..."
+        cp "$LOCAL_BINARY" "$INSTALL_DIR/$BINARY_NAME" || error "Failed to copy local binary. Does $LOCAL_BINARY exist?"
+    else
+        step "Downloading from GitHub..."
+        printf "   ${DOWNLOAD_URL}\n"
+
+        # Create temporary directory
+        TMP_DIR=$(mktemp -d)
+        trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+
+        # Download archive
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl --fail --location --progress-bar "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE_NAME"; then
+                error "Failed to download binary. Please check the version exists: https://github.com/$REPO/releases"
+            fi
+        else
+            if ! wget --show-progress -q "$DOWNLOAD_URL" -O "$TMP_DIR/$ARCHIVE_NAME"; then
+                error "Failed to download binary. Please check the version exists: https://github.com/$REPO/releases"
+            fi
+        fi
+
+        # Extract archive
+        step "Extracting binary..."
+        if ! tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$TMP_DIR"; then
+            error "Failed to extract archive"
+        fi
+
+        # Install binary
+        step "Installing binary to $INSTALL_DIR/$BINARY_NAME..."
+        if ! mv "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"; then
+            error "Failed to install binary. Do you have write permissions to $INSTALL_DIR?"
+        fi
     fi
 
     if ! chmod +x "$INSTALL_DIR/$BINARY_NAME"; then
