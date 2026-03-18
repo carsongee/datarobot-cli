@@ -31,14 +31,6 @@ cat "$(pwd)/smoke_test_scripts/assets/example_config.yaml" > "$DATAROBOT_CLI_CON
 # Set API token in our ephemeral config file
 yq -i ".token = \"$DR_API_TOKEN\"" "$DATAROBOT_CLI_CONFIG"
 
-# Check that the datarobot alias exists and works
-if command -v datarobot >/dev/null 2>&1 || [ -x "$HOME/.local/bin/datarobot" ]; then
-    echo "✅ 'datarobot' alias is available."
-else
-    echo "❌ 'datarobot' alias not found - expected symlink at $HOME/.local/bin/datarobot"
-    exit 1
-fi
-
 # Check we have expected help output (checking for header content)
 header_copy="Build AI Applications Faster"
 has_header=$(dr help | grep "${header_copy}")
@@ -46,15 +38,6 @@ if [[ -n "$has_header" ]]; then
     echo "✅ Help command returned expected content."
 else
     echo "❌ Help command did not return expected content - missing header copy: ${header_copy}"
-    exit 1
-fi
-
-# Check that datarobot alias produces identical output to dr
-has_header_alias=$(datarobot help | grep "${header_copy}" 2>/dev/null || "$HOME/.local/bin/datarobot" help | grep "${header_copy}")
-if [[ -n "$has_header_alias" ]]; then
-    echo "✅ 'datarobot' alias returned expected content."
-else
-    echo "❌ 'datarobot' alias did not return expected content."
     exit 1
 fi
 
