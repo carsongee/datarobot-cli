@@ -69,6 +69,7 @@ jobs:
         run: |
           task build
           LOCAL_BINARY=./dist/dr sh install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run Smoke Tests for Binary
         env:
