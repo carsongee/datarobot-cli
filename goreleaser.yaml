@@ -82,7 +82,12 @@ homebrew_casks:
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dr"]
-            ln_sf "#{HOMEBREW_PREFIX}/bin/dr", "#{HOMEBREW_PREFIX}/bin/datarobot"
+            system_command "/bin/ln", args: ["-sf", "#{HOMEBREW_PREFIX}/bin/dr", "#{HOMEBREW_PREFIX}/bin/datarobot"]
+          end
+        uninstall: |
+          if OS.mac?
+            symlink = Pathname.new("#{HOMEBREW_PREFIX}/bin/datarobot")
+            symlink.delete if symlink.symlink?
           end
     binaries: [ dr ]
     url:

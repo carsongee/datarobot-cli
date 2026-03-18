@@ -174,7 +174,7 @@ function Remove-Completions {
                         continue
                     }
 
-                    $isMarker = ($line -match "# $BINARY_NAME completion") -or ($line -match "# .+ alias completion")
+                    $isMarker = ($line -match "# $BINARY_NAME completion") -or ($line -match "# datarobot alias completion")
                     if ($isMarker) {
                         $skipCount = 3
                         if ($newLines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($newLines[$newLines.Count - 1])) {

@@ -463,7 +463,8 @@ func missingPowerShellBlocks(existingContent string) string {
 		if !strings.Contains(existingContent, fmt.Sprintf("# %s alias completion", alias)) {
 			fmt.Fprintf(&sb, "\n# %s alias completion\n", alias)
 			fmt.Fprintf(&sb, "if (Get-Command %s -ErrorAction SilentlyContinue) {\n", alias)
-			fmt.Fprintf(&sb, "    %s completion powershell | Out-String | Invoke-Expression\n", version.CliName)
+			fmt.Fprintf(&sb, "    $__drCompletionScript = (%s completion powershell | Out-String)\n", version.CliName)
+			fmt.Fprintf(&sb, "    Invoke-Expression ($__drCompletionScript -replace \"CommandName '%s'\", \"CommandName '%s'\")\n", version.CliName, alias)
 			sb.WriteString("}\n")
 		}
 	}
