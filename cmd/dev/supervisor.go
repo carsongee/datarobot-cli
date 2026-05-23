@@ -135,7 +135,16 @@ func (s *Supervisor) Start(ctx context.Context) {
 				log.Debug("dev: supervisor panic recovered", "service", s.cfg.Name, "panic", r)
 
 				crashed := StateCrashed
-				s.sendUpdate(ServiceUpdate{Name: s.cfg.Name, State: &crashed})
+
+				// Guard sendUpdate with its own recover: if the update channel was
+				// closed (e.g. during a test that closes it to trigger this path),
+				// the send itself would panic and crash the goroutine. This inner
+				// recover ensures the outer recovery body always exits cleanly.
+				func() {
+					defer func() { _ = recover() }()
+
+					s.sendUpdate(ServiceUpdate{Name: s.cfg.Name, State: &crashed})
+				}()
 			}
 		}()
 

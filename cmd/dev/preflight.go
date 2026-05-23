@@ -16,6 +16,12 @@ package dev
 
 import "context"
 
+// runPreflightFn is the function called by Cmd's RunE to execute pre-flight
+// steps. It is a variable so tests can substitute a stub that returns an
+// error, exercising the error-propagation path without a real Pulumi/auth
+// integration.
+var runPreflightFn = runPreflight
+
 // runPreflight resolves runtime configuration from external sources (e.g.
 // Pulumi stack outputs, authenticated user context) and returns a map of
 // environment variables to inject into every service process.

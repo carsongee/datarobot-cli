@@ -92,7 +92,7 @@ Keybindings:
 				return errors.New("config file defines no services")
 			}
 
-			extraEnv, err := runPreflight(cmd.Context(), opts.SkipPreflight)
+			extraEnv, err := runPreflightFn(cmd.Context(), opts.SkipPreflight)
 			if err != nil {
 				return fmt.Errorf("pre-flight: %w", err)
 			}

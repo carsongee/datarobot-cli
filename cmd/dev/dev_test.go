@@ -17,6 +17,7 @@ package dev
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -1850,6 +1851,28 @@ func TestCmd_TelemetryExtractorIncludesConfigAndSkipPreflight(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "custom.yaml", event.EventProperties["config_file"])
 	assert.Equal(t, true, event.EventProperties["skip_preflight"])
+}
+
+func TestCmd_PreflightErrorReturnsError(t *testing.T) {
+	// Substitute runPreflightFn with a stub that returns an error to cover the
+	// "pre-flight: %w" error-propagation path in Cmd()'s RunE.
+	old := runPreflightFn
+
+	t.Cleanup(func() { runPreflightFn = old })
+
+	runPreflightFn = func(_ context.Context, _ bool) (map[string]string, error) {
+		return nil, errors.New("pulumi stack not found")
+	}
+
+	path := writeTempConfig(t, "services:\n  - name: svc\n    command: echo hello\n")
+	c := Cmd()
+	require.NoError(t, c.Flags().Set("config", path))
+
+	err := c.RunE(c, []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pre-flight")
+	assert.Contains(t, err.Error(), "pulumi stack not found")
 }
 
 func TestCmd_NoTTY_ReturnsRunningTUIError(t *testing.T) {

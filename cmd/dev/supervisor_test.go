@@ -350,3 +350,23 @@ func TestMakeCommand_CancelWithDeadProcess_FallsBackToSignal(t *testing.T) {
 	// Signal also returns ESRCH, but Cancel must not panic.
 	_ = cmd.Cancel()
 }
+
+func TestSupervisor_Start_GoroutinePanicIsCaught(t *testing.T) {
+	// Closing the channel before Start() causes the first sendUpdate in run()
+	// (StateStarting) to panic. The goroutine's defer/recover must catch it,
+	// attempt sendUpdate(StateCrashed) — which also panics on the closed channel
+	// but is caught by the nested inner recover — and exit cleanly without
+	// crashing the program.
+	ch := make(chan ServiceUpdate, 50)
+	cfg := ServiceConfig{Name: "svc", Command: "sleep 60", Probe: ProbeNone}
+	sup := NewSupervisor(cfg, ch)
+
+	close(ch)
+
+	// Start() must not panic; the goroutine must recover internally.
+	assert.NotPanics(t, func() { sup.Start(t.Context()) })
+
+	// Stop() calls wg.Wait(), ensuring the goroutine has fully exited.
+	assert.NotPanics(t, sup.Stop)
+}
+
