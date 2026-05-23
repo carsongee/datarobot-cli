@@ -1395,6 +1395,30 @@ func TestRenderLogPanel_FilterTagNoCountWhenNoLogs(t *testing.T) {
 	assert.NotContains(t, out, "0/0")
 }
 
+func TestRenderLogPanel_FilterCountUpdatesOnServiceNavigation(t *testing.T) {
+	// Filter is global; counts must reflect the currently selected service.
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "svc-a", Command: "true"},
+		{Name: "svc-b", Command: "true"},
+	})
+	m.services[0].logs.add(LogEntry{Line: "match line", Timestamp: time.Now()})
+	// svc-b has no matching logs.
+	m.filterInput.SetValue("match")
+	m.selected = 0
+	m.refreshLogViewport()
+
+	outA := m.renderLogPanel()
+
+	m.selected = 1
+	m.refreshLogViewport()
+
+	outB := m.renderLogPanel()
+
+	assert.Contains(t, outA, "1/1", "service A has 1 match out of 1 log line")
+	// service B has no logs so no count is shown.
+	assert.NotContains(t, outB, "/")
+}
+
 // --- refreshLogViewport tests ----------------------------------------------
 
 func TestRefreshLogViewport_UninitializedReturnsEarly(t *testing.T) {
