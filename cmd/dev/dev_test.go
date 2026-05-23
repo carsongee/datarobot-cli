@@ -601,6 +601,25 @@ func TestRenderServiceRow_ColumnsPresent(t *testing.T) {
 	assert.Contains(t, row, "8080")
 }
 
+func TestRenderServiceRow_NoDashPortWhenZero(t *testing.T) {
+	// Services without a port (no probe or probe=none) should show "-" in PORT column.
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	row := m.renderServiceRow(0, 30, 12, 7, 8, 7, 8)
+
+	assert.Contains(t, row, "-")
+}
+
+func TestRenderServiceRow_LongNameTruncated(t *testing.T) {
+	// Service names longer than nameWidth should be clipped with "…".
+	m := newInitializedModel(t, []ServiceConfig{{Name: "very-long-service-name-exceeds-width", Command: "true"}})
+
+	row := m.renderServiceRow(0, 10, 12, 7, 8, 7, 8)
+
+	assert.Contains(t, row, "…")
+	assert.NotContains(t, row, "very-long-service-name-exceeds-width")
+}
+
 func TestRenderServiceRow_MutedBadge(t *testing.T) {
 	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
 	m.services[0].muted = true
