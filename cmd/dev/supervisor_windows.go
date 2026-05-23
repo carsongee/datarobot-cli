@@ -23,6 +23,12 @@ import (
 )
 
 // makeCommand creates an exec.Cmd for the service using cmd /C on Windows.
+//
+// Known limitation: killing cmd.exe does not automatically terminate its
+// child processes. A complete implementation would use a Windows Job Object
+// (CreateJobObject + AssignProcessToJobObject + JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+// to ensure the entire process tree is torn down on exit. This is a
+// development-tool limitation — orphan processes may linger on forced exit.
 func makeCommand(ctx context.Context, cfg ServiceConfig) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "cmd", "/C", cfg.Command)
 	cmd.Dir = cfg.Dir
