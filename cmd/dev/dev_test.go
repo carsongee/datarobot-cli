@@ -1349,6 +1349,33 @@ func TestRenderLogPanel_FilterTagShownWhenFilterSet(t *testing.T) {
 	assert.Contains(t, out, "myfilter")
 }
 
+func TestRenderLogPanel_FilterTagShowsCountWhenLogsExist(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].logs.add(LogEntry{Line: "match this", Timestamp: time.Now()})
+	m.services[0].logs.add(LogEntry{Line: "skip this", Timestamp: time.Now()})
+	m.filterInput.SetValue("match")
+	m.refreshLogViewport()
+
+	out := m.renderLogPanel()
+
+	// Should show "filter: match (1/2)" — 1 match out of 2 total lines.
+	assert.Contains(t, out, "match")
+	assert.Contains(t, out, "1/2")
+}
+
+func TestRenderLogPanel_FilterTagNoCountWhenNoLogs(t *testing.T) {
+	// When the service has produced no output yet (empty log ring), the count
+	// is suppressed — showing "(0/0)" would be confusing.
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filterInput.SetValue("myfilter")
+	m.refreshLogViewport()
+
+	out := m.renderLogPanel()
+
+	assert.Contains(t, out, "myfilter")
+	assert.NotContains(t, out, "0/0")
+}
+
 // --- refreshLogViewport tests ----------------------------------------------
 
 func TestRefreshLogViewport_UninitializedReturnsEarly(t *testing.T) {

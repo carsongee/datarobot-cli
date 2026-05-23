@@ -55,19 +55,21 @@ type serviceInfo struct {
 
 // Model is the top-level Bubble Tea model for `dr dev`.
 type Model struct {
-	services    []serviceInfo
-	supervisors []*Supervisor
-	updateCh    chan ServiceUpdate
-	parentCtx   context.Context
-	selected    int
-	logView     viewport.Model
-	filterInput textinput.Model
-	filtering   bool // true while the filter text input is active
-	width       int
-	height      int
-	logAutoScrl bool // follow the latest log output
-	initialized bool // true after the first WindowSizeMsg
-	quitting    bool // true while shutdown is in progress
+	services         []serviceInfo
+	supervisors      []*Supervisor
+	updateCh         chan ServiceUpdate
+	parentCtx        context.Context
+	selected         int
+	logView          viewport.Model
+	filterInput      textinput.Model
+	filtering        bool // true while the filter text input is active
+	width            int
+	height           int
+	logAutoScrl      bool // follow the latest log output
+	initialized      bool // true after the first WindowSizeMsg
+	quitting         bool // true while shutdown is in progress
+	logFilteredCount int  // lines visible after applying filter
+	logTotalCount    int  // total lines in current service's log ring
 }
 
 // Internal message types -----------------------------------------------
@@ -469,6 +471,9 @@ func (m *Model) refreshLogViewport() {
 		lines = append(lines, tui.DimStyle.Render(ts)+"  "+colorStyle.Render(e.Line))
 	}
 
+	m.logFilteredCount = len(lines)
+	m.logTotalCount = len(entries)
+
 	var content string
 
 	switch {
@@ -659,8 +664,13 @@ func (m Model) renderLogPanel() string {
 	}
 
 	filterTag := ""
+
 	if filter := m.filterInput.Value(); filter != "" {
-		filterTag = " " + tui.DimStyle.Render("filter: "+filter)
+		if m.logTotalCount > 0 {
+			filterTag = " " + tui.DimStyle.Render(fmt.Sprintf("filter: %s (%d/%d)", filter, m.logFilteredCount, m.logTotalCount))
+		} else {
+			filterTag = " " + tui.DimStyle.Render("filter: "+filter)
+		}
 	}
 
 	label := tui.DimStyle.Render("Logs: ") + colorStyle.Bold(true).Render(svc.cfg.Name) + muteTag + filterTag
