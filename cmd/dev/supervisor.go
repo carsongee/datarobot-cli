@@ -145,15 +145,19 @@ func (s *Supervisor) Start(ctx context.Context) {
 
 // Stop cancels the service context and waits for the goroutine to finish.
 func (s *Supervisor) Stop() {
-	s.mu.Lock()
-	cancel := s.cancel
-	s.mu.Unlock()
-
+	cancel := s.readCancel()
 	if cancel != nil {
 		cancel()
 	}
 
 	s.wg.Wait()
+}
+
+func (s *Supervisor) readCancel() context.CancelFunc {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.cancel
 }
 
 // Restart transitions the service to StateRestarting, stops it, then starts it again.
@@ -180,10 +184,17 @@ func (s *Supervisor) run(ctx context.Context) {
 	cmd.Stderr = lw
 
 	if err := cmd.Start(); err != nil {
-		crashed := StateCrashed
+		// If the context was already cancelled (e.g. Stop() called before the
+		// process launched), report StateStopped rather than StateCrashed so
+		// callers can distinguish a clean shutdown from an actual crash.
+		state := StateCrashed
+		if ctx.Err() != nil {
+			state = StateStopped
+		}
+
 		s.sendUpdate(ServiceUpdate{
 			Name:  s.cfg.Name,
-			State: &crashed,
+			State: &state,
 			LogLine: &LogEntry{
 				Line:      fmt.Sprintf("failed to start: %v", err),
 				Timestamp: time.Now(),

@@ -26,6 +26,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/datarobot/cli/tui"
 )
 
@@ -204,9 +205,15 @@ func (m Model) View() string {
 func (m Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	m.initialized = true
 
-	m.logView = viewport.New(m.width, m.logViewHeight())
+	if !m.initialized {
+		m.initialized = true
+		m.logView = viewport.New(m.width, m.logViewHeight())
+	} else {
+		m.logView.Width = m.width
+		m.logView.Height = m.logViewHeight()
+	}
+
 	m.refreshLogViewport()
 
 	return m, nil
@@ -337,7 +344,11 @@ func (m Model) handleRestart() (tea.Model, tea.Cmd) {
 	// Run restart in a goroutine so it doesn't block the UI. The supervisor
 	// sends StateRestarting/StateStarting/StateHealthy via the update channel.
 	return m, func() tea.Msg {
-		defer func() { _ = recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Debug("dev: restart goroutine panic recovered", "service", sup.cfg.Name, "panic", r)
+			}
+		}()
 
 		sup.Restart(ctx)
 

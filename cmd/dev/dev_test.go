@@ -15,6 +15,7 @@
 package dev
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -25,7 +26,10 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/datarobot/cli/internal/cli"
+	"github.com/datarobot/cli/internal/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -250,23 +254,55 @@ func TestProcessStateString(t *testing.T) {
 
 // --- renderCPU / renderMem tests ----------------------------------------
 
-func TestRenderCPU(t *testing.T) {
-	assert.NotEmpty(t, renderCPU(0, StateHealthy))
-	assert.NotEmpty(t, renderCPU(42.5, StateHealthy))
-	assert.NotEmpty(t, renderCPU(42.5, StateCrashed))
-	assert.NotEmpty(t, renderCPU(42.5, StateStopped))
+func TestRenderCPU_ZeroShowsDash(t *testing.T) {
+	assert.Contains(t, renderCPU(0, StateHealthy), "-")
 }
 
-func TestRenderMem(t *testing.T) {
-	assert.NotEmpty(t, renderMem(0, StateHealthy))
-	assert.NotEmpty(t, renderMem(512, StateHealthy))
-	assert.NotEmpty(t, renderMem(1024, StateHealthy))
-	assert.NotEmpty(t, renderMem(512, StateCrashed))
+func TestRenderCPU_NonZeroHealthyShowsPercent(t *testing.T) {
+	out := renderCPU(42.5, StateHealthy)
+
+	assert.Contains(t, out, "42.5%")
 }
 
-func TestRenderMemUnit(t *testing.T) {
-	assert.Contains(t, renderMem(512, StateHealthy), "MiB")
-	assert.Contains(t, renderMem(2048, StateHealthy), "GiB")
+func TestRenderCPU_StartingStateShowsPercent(t *testing.T) {
+	// CPU should be displayed during StateStarting, not just StateHealthy.
+	out := renderCPU(15.3, StateStarting)
+
+	assert.Contains(t, out, "15.3%")
+}
+
+func TestRenderCPU_NonRunningStateShowsDash(t *testing.T) {
+	assert.Contains(t, renderCPU(42.5, StateCrashed), "-")
+	assert.Contains(t, renderCPU(42.5, StateStopped), "-")
+	assert.Contains(t, renderCPU(42.5, StateRestarting), "-")
+}
+
+func TestRenderMem_ZeroShowsDash(t *testing.T) {
+	assert.Contains(t, renderMem(0, StateHealthy), "-")
+}
+
+func TestRenderMem_MiBRange(t *testing.T) {
+	out := renderMem(512, StateHealthy)
+
+	assert.Contains(t, out, "512MiB")
+}
+
+func TestRenderMem_GiBRange(t *testing.T) {
+	out := renderMem(2048, StateHealthy)
+
+	assert.Contains(t, out, "2.0GiB")
+}
+
+func TestRenderMem_NonRunningStateShowsDash(t *testing.T) {
+	assert.Contains(t, renderMem(512, StateCrashed), "-")
+	assert.Contains(t, renderMem(512, StateStopped), "-")
+	assert.Contains(t, renderMem(512, StateRestarting), "-")
+}
+
+func TestRenderMem_StartingStateShowsValue(t *testing.T) {
+	out := renderMem(256, StateStarting)
+
+	assert.Contains(t, out, "256MiB")
 }
 
 // --- applyServiceUpdate tests -------------------------------------------
@@ -357,6 +393,82 @@ func TestApplyServiceUpdate_StopClearsPIDAndMetrics(t *testing.T) {
 	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &stopped})
 
 	assert.Equal(t, 0, m.services[0].pid)
+}
+
+func TestApplyServiceUpdate_RestartingResetsStartedAt(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{
+			{Name: "svc", Command: "true"},
+		},
+	}, nil)
+
+	before := m.services[0].startedAt
+
+	time.Sleep(2 * time.Millisecond)
+
+	restarting := StateRestarting
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &restarting})
+
+	assert.True(t, m.services[0].startedAt.After(before),
+		"startedAt should be updated when state transitions to Restarting")
+}
+
+func TestApplyServiceUpdate_StartingResetsStartedAt(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{
+			{Name: "svc", Command: "true"},
+		},
+	}, nil)
+
+	before := m.services[0].startedAt
+
+	time.Sleep(2 * time.Millisecond)
+
+	starting := StateStarting
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &starting})
+
+	assert.True(t, m.services[0].startedAt.After(before),
+		"startedAt should be updated when state transitions to Starting")
+}
+
+func TestApplyServiceUpdate_HealthyDoesNotResetStartedAt(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{
+			{Name: "svc", Command: "true"},
+		},
+	}, nil)
+
+	before := m.services[0].startedAt
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	assert.Equal(t, before, m.services[0].startedAt,
+		"startedAt should not change when transitioning to Healthy")
+}
+
+func TestApplyServiceUpdate_StateAndLogLineInOneUpdate(t *testing.T) {
+	// This mirrors the ServiceUpdate produced by the cmd.Start() error path
+	// in supervisor.run(), which includes both a state change and a log line.
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{
+			{Name: "svc", Command: "true"},
+		},
+	}, nil)
+
+	crashed := StateCrashed
+	m.applyServiceUpdate(ServiceUpdate{
+		Name:  "svc",
+		State: &crashed,
+		LogLine: &LogEntry{
+			Line:      "failed to start: exec not found",
+			Timestamp: time.Now(),
+		},
+	})
+
+	assert.Equal(t, StateCrashed, m.services[0].state)
+	require.Equal(t, 1, m.services[0].logs.size)
+	assert.Equal(t, "failed to start: exec not found", m.services[0].logs.all()[0].Line)
 }
 
 // --- layout / rendering tests -------------------------------------------
@@ -509,6 +621,14 @@ func TestTruncate(t *testing.T) {
 	assert.Equal(t, "hello", truncate("hello", 5))
 }
 
+func TestTruncate_MultibyteUnicode(t *testing.T) {
+	// Each kanji is one rune (3 bytes in UTF-8). truncate must count runes, not bytes.
+	s := "日本語テスト" // 6 runes
+
+	assert.Equal(t, "日本語テスト", truncate(s, 10), "should not truncate when within limit")
+	assert.Equal(t, "日本語…", truncate(s, 4), "should truncate at rune boundary")
+}
+
 func TestRenderStatus(t *testing.T) {
 	// Verify each state produces non-empty output.
 	states := []ProcessState{StateHealthy, StateStarting, StateCrashed, StateStopped, StateRestarting}
@@ -518,7 +638,21 @@ func TestRenderStatus(t *testing.T) {
 	}
 }
 
+func TestRenderStatus_UnknownStateReturnsUnknown(t *testing.T) {
+	out := renderStatus(ProcessState(999))
+
+	assert.Contains(t, out, "Unknown")
+}
+
 // --- logRing tests ------------------------------------------------------
+
+func TestLogRing_EmptyAllReturnsNil(t *testing.T) {
+	var r logRing
+
+	got := r.all()
+
+	assert.Empty(t, got)
+}
 
 func TestLogRing_BelowCapacity(t *testing.T) {
 	var r logRing
@@ -818,4 +952,921 @@ func entry(i int) LogEntry {
 		Line:      fmt.Sprintf("line-%d", i),
 		Timestamp: time.Now().Add(time.Duration(i) * time.Millisecond),
 	}
+}
+
+// --- handleWindowSize tests ------------------------------------------------
+
+func TestHandleWindowSize_SetsInitializedAndDimensions(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+	assert.False(t, m.initialized)
+
+	result, cmd := m.handleWindowSize(tea.WindowSizeMsg{Width: 100, Height: 30})
+	tm := result.(Model)
+
+	assert.True(t, tm.initialized)
+	assert.Equal(t, 100, tm.width)
+	assert.Equal(t, 30, tm.height)
+	assert.Nil(t, cmd)
+}
+
+func TestHandleWindowSize_SetsLogViewDimensions(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "a", Command: "true"}, {Name: "b", Command: "true"}},
+	}, nil)
+
+	result, _ := m.handleWindowSize(tea.WindowSizeMsg{Width: 80, Height: 20})
+	tm := result.(Model)
+
+	assert.Equal(t, 80, tm.logView.Width)
+	assert.Equal(t, tm.logViewHeight(), tm.logView.Height)
+}
+
+func TestHandleWindowSize_ResizePreservesScrollPosition(t *testing.T) {
+	// First resize — initializes the viewport.
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+	result, _ := m.handleWindowSize(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = result.(Model)
+
+	// Add enough log content to be able to scroll.
+	for i := range 60 {
+		m.services[0].logs.add(LogEntry{Line: fmt.Sprintf("line %d", i), Timestamp: time.Now()})
+	}
+
+	m.logAutoScrl = false
+	m.refreshLogViewport()
+	m.logView.GotoTop()
+	scrollY := m.logView.YOffset
+
+	// Second resize — should NOT reset scroll position (just adjust dimensions).
+	result2, _ := m.handleWindowSize(tea.WindowSizeMsg{Width: 100, Height: 35})
+	m2 := result2.(Model)
+
+	assert.Equal(t, 100, m2.width)
+	assert.Equal(t, scrollY, m2.logView.YOffset, "scroll position should be preserved on resize")
+}
+
+// --- handleNavigate tests --------------------------------------------------
+
+func TestHandleNavigate_DownMoves(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 0
+
+	result, _ := m.handleNavigate(1)
+	tm := result.(Model)
+
+	assert.Equal(t, 1, tm.selected)
+}
+
+func TestHandleNavigate_UpMoves(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 1
+
+	result, _ := m.handleNavigate(-1)
+	tm := result.(Model)
+
+	assert.Equal(t, 0, tm.selected)
+}
+
+func TestHandleNavigate_UpAtBoundaryNoChange(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "a", Command: "true"}})
+	m.selected = 0
+
+	result, _ := m.handleNavigate(-1)
+	tm := result.(Model)
+
+	assert.Equal(t, 0, tm.selected)
+}
+
+func TestHandleNavigate_DownAtBoundaryNoChange(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 1
+
+	result, _ := m.handleNavigate(1)
+	tm := result.(Model)
+
+	assert.Equal(t, 1, tm.selected)
+}
+
+// --- handleMute tests ------------------------------------------------------
+
+func TestHandleMute_TogglesOn(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	assert.False(t, m.services[0].muted)
+
+	result, _ := m.handleMute()
+	tm := result.(Model)
+
+	assert.True(t, tm.services[0].muted)
+}
+
+func TestHandleMute_TogglesOff(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].muted = true
+
+	result, _ := m.handleMute()
+	tm := result.(Model)
+
+	assert.False(t, tm.services[0].muted)
+}
+
+// --- handleKey tests -------------------------------------------------------
+
+func TestHandleKey_QSetsQuitting(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.quitting)
+	assert.NotNil(t, cmd)
+}
+
+func TestHandleKey_EscSetsQuitting(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	tm := result.(Model)
+
+	assert.True(t, tm.quitting)
+}
+
+func TestHandleKey_JNavigatesDown(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 0
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	tm := result.(Model)
+
+	assert.Equal(t, 1, tm.selected)
+}
+
+func TestHandleKey_KNavigatesUp(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 1
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	tm := result.(Model)
+
+	assert.Equal(t, 0, tm.selected)
+}
+
+func TestHandleKey_MTogglesMute(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.services[0].muted)
+}
+
+func TestHandleKey_SlashActivatesFilter(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.filtering)
+	assert.NotNil(t, cmd) // filterInput.Focus() returns a Cmd
+}
+
+func TestHandleKey_GEnablesAutoScroll(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.logAutoScrl = false
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.logAutoScrl)
+}
+
+func TestHandleKey_IgnoredWhileQuitting(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.quitting = true
+	m.selected = 0
+
+	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	tm := result.(Model)
+
+	assert.Equal(t, 0, tm.selected)
+	assert.Nil(t, cmd)
+}
+
+// --- handleFilterKey tests -------------------------------------------------
+
+func TestHandleFilterKey_EscClearsFilterAndExitsMode(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = true
+	m.filterInput.SetValue("hello")
+
+	result, _ := m.handleFilterKey(tea.KeyMsg{Type: tea.KeyEsc})
+	tm := result.(Model)
+
+	assert.False(t, tm.filtering)
+	assert.Empty(t, tm.filterInput.Value())
+}
+
+func TestHandleFilterKey_EnterCommitsFilterAndExitsMode(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = true
+	m.filterInput.SetValue("hello")
+
+	result, _ := m.handleFilterKey(tea.KeyMsg{Type: tea.KeyEnter})
+	tm := result.(Model)
+
+	assert.False(t, tm.filtering)
+	assert.Equal(t, "hello", tm.filterInput.Value())
+}
+
+// --- View tests ------------------------------------------------------------
+
+func TestView_UninitializedShowsInitializing(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	out := m.View()
+
+	assert.Contains(t, out, "Initializing")
+}
+
+func TestView_QuittingShowsStopping(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.quitting = true
+
+	out := m.View()
+
+	assert.Contains(t, out, "Stopping")
+}
+
+func TestView_InitializedContainsServiceAndKey(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "myapi", Command: "true", Port: 8080}})
+
+	out := m.View()
+
+	assert.Contains(t, out, "myapi")
+	assert.Contains(t, out, "8080")
+	assert.Contains(t, out, "quit")
+}
+
+// --- renderServiceTable tests ----------------------------------------------
+
+func TestRenderServiceTable_ContainsAllServiceNames(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "api", Command: "true", Port: 8080},
+		{Name: "frontend", Command: "true", Port: 5173},
+	})
+
+	out := m.renderServiceTable()
+
+	assert.Contains(t, out, "api")
+	assert.Contains(t, out, "frontend")
+}
+
+func TestRenderServiceTable_ContainsColumnHeaders(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	out := m.renderServiceTable()
+
+	assert.Contains(t, out, "SERVICE")
+	assert.Contains(t, out, "STATUS")
+	assert.Contains(t, out, "CPU")
+}
+
+// --- renderLogPanel tests --------------------------------------------------
+
+func TestRenderLogPanel_ContainsServiceName(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "mysvc", Command: "true"}})
+
+	out := m.renderLogPanel()
+
+	assert.Contains(t, out, "mysvc")
+}
+
+func TestRenderLogPanel_MutedShowsMessage(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].muted = true
+
+	out := m.renderLogPanel()
+
+	assert.Contains(t, out, "muted")
+}
+
+func TestRenderLogPanel_ShowsLogLines(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].logs.add(LogEntry{Line: "hello world", Timestamp: time.Now()})
+	m.refreshLogViewport()
+
+	out := m.renderLogPanel()
+
+	assert.Contains(t, out, "hello world")
+}
+
+func TestRenderLogPanel_FilterTagShownWhenFilterSet(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filterInput.SetValue("myfilter")
+
+	out := m.renderLogPanel()
+
+	assert.Contains(t, out, "myfilter")
+}
+
+// --- refreshLogViewport tests ----------------------------------------------
+
+func TestRefreshLogViewport_UninitializedReturnsEarly(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+	// initialized is false by default — refreshLogViewport must be a no-op.
+	m.refreshLogViewport() // must not panic
+}
+
+func TestRefreshLogViewport_FilterExcludesNonMatchingLines(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].logs.add(LogEntry{Line: "match this line", Timestamp: time.Now()})
+	m.services[0].logs.add(LogEntry{Line: "skip foobar", Timestamp: time.Now()})
+	m.filterInput.SetValue("match")
+	m.refreshLogViewport()
+
+	content := m.logView.View()
+
+	assert.Contains(t, content, "match this line")
+	assert.NotContains(t, content, "skip foobar")
+}
+
+func TestRefreshLogViewport_AutoScrollGoesToBottom(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.logAutoScrl = true
+
+	for i := range 50 {
+		m.services[0].logs.add(LogEntry{
+			Line:      fmt.Sprintf("line %d", i),
+			Timestamp: time.Now(),
+		})
+	}
+
+	m.refreshLogViewport()
+
+	assert.True(t, m.logView.AtBottom())
+}
+
+// --- Update dispatch tests -------------------------------------------------
+
+func TestUpdate_WindowSizeMessage(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	tm := result.(Model)
+
+	assert.True(t, tm.initialized)
+	assert.Equal(t, 80, tm.width)
+}
+
+func TestUpdate_ServiceUpdateMessageAppliesState(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+	m.initialized = true
+
+	healthy := StateHealthy
+	result, _ := m.Update(serviceUpdateMsg{Name: "svc", State: &healthy})
+	tm := result.(Model)
+
+	assert.Equal(t, StateHealthy, tm.services[0].state)
+}
+
+func TestUpdate_ShutdownDoneReturnsQuit(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	_, cmd := m.Update(shutdownDoneMsg{})
+
+	require.NotNil(t, cmd)
+
+	msg := cmd()
+	_, isQuit := msg.(tea.QuitMsg)
+	assert.True(t, isQuit)
+}
+
+func TestUpdate_RestartDoneReturnsNilCmd(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	_, cmd := m.Update(restartDoneMsg{})
+
+	assert.Nil(t, cmd)
+}
+
+func TestUpdate_MetricsTickReturnsNextTick(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	_, cmd := m.Update(metricsTickMsg(time.Now()))
+
+	assert.NotNil(t, cmd)
+}
+
+// --- Init tests ------------------------------------------------------------
+
+func TestInit_StartsAllSupervisorsAndReturnsBatchCmd(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{
+			{Name: "svc1", Command: "sleep 60", Probe: ProbeNone},
+			{Name: "svc2", Command: "sleep 60", Probe: ProbeNone},
+		},
+	}, nil)
+
+	cmd := m.Init()
+
+	// Init must return a non-nil Batch cmd (listenForUpdates + metricsTickCmd).
+	require.NotNil(t, cmd)
+
+	// Clean up: stop the supervisors that Init started.
+	m.StopAll()
+}
+
+// --- collectMetrics tests --------------------------------------------------
+
+func TestCollectMetrics_SkipsZeroPID(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	m.collectMetrics()
+
+	assert.InDelta(t, 0.0, m.services[0].cpuPct, 1e-9)
+	assert.InDelta(t, 0.0, m.services[0].memMiB, 1e-9)
+}
+
+func TestGetProcessMetrics_CurrentProcess(t *testing.T) {
+	pid := os.Getpid()
+
+	_, mem := getProcessMetrics(pid)
+
+	assert.Greater(t, mem, 0.0, "current process should report non-zero RSS")
+}
+
+// --- StopAll tests ---------------------------------------------------------
+
+func TestStopAll_NoSupervisors(t *testing.T) {
+	m := NewModel(t.Context(), &Config{Services: []ServiceConfig{}}, nil)
+
+	m.StopAll() // must not panic
+}
+
+func TestStopAll_UnstartedSupervisors(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	m.StopAll() // unstarted supervisors have nil cancel — must not panic or deadlock
+}
+
+// --- handleScrollViewport tests --------------------------------------------
+
+func TestHandleScrollViewport_DoesNotPanic(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	for i := range 60 {
+		m.services[0].logs.add(LogEntry{Line: fmt.Sprintf("line %d", i), Timestamp: time.Now()})
+	}
+
+	m.refreshLogViewport()
+
+	// Send a key not explicitly handled by handleKey — routes to handleScrollViewport.
+	result, _ := m.handleScrollViewport(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	_ = result.(Model)
+}
+
+func TestHandleKey_UnknownKeyGoesToViewport(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	// "f" is not handled explicitly — goes to handleScrollViewport.
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	_ = result.(Model)
+}
+
+// --- handleRestart (happy path) tests --------------------------------------
+
+func TestHandleRestart_LaunchesCommandWhenNotRestarting(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleRestart()
+
+	assert.NotNil(t, cmd)
+}
+
+// --- handleFilterKey (default case) ----------------------------------------
+
+func TestHandleFilterKey_TypingCharUpdatesInput(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = true
+
+	result, _ := m.handleFilterKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.filtering)
+}
+
+// --- stopAllCmd test -------------------------------------------------------
+
+func TestStopAllCmd_ReturnsShutdownDone(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	cmd := m.stopAllCmd()
+	require.NotNil(t, cmd)
+
+	msg := cmd()
+	_, ok := msg.(shutdownDoneMsg)
+	assert.True(t, ok)
+}
+
+// --- Update key-message dispatch -------------------------------------------
+
+func TestUpdate_KeyMessageDispatchesToHandleKey(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 0
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	tm := result.(Model)
+
+	assert.Equal(t, 1, tm.selected)
+}
+
+// --- listenForUpdates test -------------------------------------------------
+
+func TestListenForUpdates_ReturnsUpdateFromChannel(t *testing.T) {
+	ch := make(chan ServiceUpdate, 1)
+
+	u := ServiceUpdate{Name: "svc"}
+	ch <- u
+
+	cmd := listenForUpdates(ch)
+	require.NotNil(t, cmd)
+
+	msg := cmd()
+	got, ok := msg.(serviceUpdateMsg)
+
+	require.True(t, ok)
+	assert.Equal(t, "svc", got.Name)
+}
+
+// --- collectMetrics with live PID ------------------------------------------
+
+func TestCollectMetrics_WithLivePID(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].pid = os.Getpid()
+
+	// collectMetrics must not panic when a valid PID is provided.
+	m.collectMetrics()
+}
+
+// --- handleScrollViewport logAutoScrl branch --------------------------------
+
+func TestHandleScrollViewport_SetsAutoScrollFalseWhenNotAtBottom(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	// Fill the log with enough lines to exceed the viewport height.
+	for i := range 200 {
+		m.services[0].logs.add(LogEntry{Line: fmt.Sprintf("line %d", i), Timestamp: time.Now()})
+	}
+
+	m.refreshLogViewport()
+
+	// Scroll to the top so viewport is NOT at the bottom.
+	m.logView.GotoTop()
+
+	// A key that scrolls (e.g. 'j' forwarded here) will trigger AtBottom check.
+	result, _ := m.handleScrollViewport(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	tm := result.(Model)
+
+	assert.False(t, tm.logAutoScrl)
+}
+
+// --- handleKey "r" (restart) -----------------------------------------------
+
+func TestHandleKey_RTriggersRestart(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+
+	assert.NotNil(t, cmd)
+}
+
+// --- Update with filtering active + unhandled message ---------------------
+
+type unknownTestMsg struct{}
+
+func TestUpdate_FilteringForwardsUnhandledMessage(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = true
+
+	// Send a message not matched by any case in Update's switch.
+	result, _ := m.Update(unknownTestMsg{})
+	tm := result.(Model)
+
+	// filtering should still be true — we just forwarded the message.
+	assert.True(t, tm.filtering)
+}
+
+func TestUpdate_UnhandledMessageNotFilteringReturnsNilCmd(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = false
+
+	_, cmd := m.Update(unknownTestMsg{})
+
+	assert.Nil(t, cmd)
+}
+
+// --- handleKey filtering dispatch ------------------------------------------
+
+func TestHandleKey_FilteringRoutesToHandleFilterKey(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = true
+
+	// Any key while filtering should route to handleFilterKey.
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.filtering)
+}
+
+// --- renderLogPanel edge cases ---------------------------------------------
+
+func TestRenderLogPanel_EmptyServicesReturnsEmpty(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{})
+
+	out := m.renderLogPanel()
+
+	assert.Empty(t, out)
+}
+
+func TestRenderLogPanel_FilteringShowsInputRow(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.filtering = true
+
+	out := m.renderLogPanel()
+
+	assert.NotEmpty(t, out)
+}
+
+// --- NewModel with extraEnv and service Env --------------------------------
+
+func TestNewModel_ExtraEnvMergedIntoServiceEnv(t *testing.T) {
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{Name: "svc", Command: "true", Env: map[string]string{"SVC_VAR": "1"}},
+		},
+	}
+	extraEnv := map[string]string{"EXTRA_VAR": "2"}
+
+	m := NewModel(t.Context(), cfg, extraEnv)
+
+	require.Len(t, m.services, 1)
+	assert.Equal(t, "1", m.services[0].cfg.Env["SVC_VAR"])
+	assert.Equal(t, "2", m.services[0].cfg.Env["EXTRA_VAR"])
+}
+
+func TestNewModel_ServiceEnvTakesPrecedenceOverExtraEnv(t *testing.T) {
+	// When both service Env and extraEnv define the same key, service Env wins.
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{Name: "svc", Command: "true", Env: map[string]string{"SHARED": "service-wins"}},
+		},
+	}
+	extraEnv := map[string]string{"SHARED": "preflight-value"}
+
+	m := NewModel(t.Context(), cfg, extraEnv)
+
+	assert.Equal(t, "service-wins", m.services[0].cfg.Env["SHARED"],
+		"service-level env must override preflight extraEnv for the same key")
+}
+
+func TestNewModel_ColorCyclesFor7Services(t *testing.T) {
+	// With 7 services and only 6 palette entries, the 7th service should
+	// wrap around to the first color — no panic and correct modulo assignment.
+	svcs := make([]ServiceConfig, 7)
+	for i := range svcs {
+		svcs[i] = ServiceConfig{Name: fmt.Sprintf("svc%d", i), Command: "true"}
+	}
+
+	m := NewModel(t.Context(), &Config{Services: svcs}, nil)
+
+	require.Len(t, m.services, 7)
+	assert.Equal(t, m.services[0].color, m.services[6].color,
+		"7th service color should wrap around to the same as the 1st")
+}
+
+// --- renderServiceTable narrow viewport ------------------------------------
+
+func TestRenderServiceTable_NarrowViewportClampsNameWidth(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.width = 5 // very narrow — forces nameWidth < 10 guard
+
+	out := m.renderServiceTable()
+
+	assert.NotEmpty(t, out)
+}
+
+// --- handleRestart cmd body coverage ---------------------------------------
+
+func TestHandleRestart_CmdBodyRunsRestart(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+
+	// Stop all supervisors when the test ends so their goroutines don't race
+	// with log machinery in subsequent tests.
+	t.Cleanup(m.StopAll)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleRestart()
+	require.NotNil(t, cmd)
+
+	// Call the command body to cover the defer/Restart lines.
+	msg := cmd()
+	_, ok := msg.(restartDoneMsg)
+
+	assert.True(t, ok)
+}
+
+func TestHandleRestart_PanicInRestartIsRecovered(t *testing.T) {
+	// Close the update channel BEFORE calling Restart so that the first
+	// sendUpdate inside Supervisor.Restart panics with "send on closed channel".
+	// The handleRestart cmd body catches this via its recover() defer.
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleRestart()
+	require.NotNil(t, cmd)
+
+	// Closing the channel causes the next sendUpdate call to panic.
+	close(m.updateCh)
+
+	// The panic must be caught — cmd() must return, not crash the process.
+	assert.NotPanics(t, func() {
+		cmd()
+	})
+}
+
+// --- getProcessMetrics invalid PID ----------------------------------------
+
+func TestGetProcessMetrics_InvalidPIDReturnsZero(t *testing.T) {
+	cpu, mem := getProcessMetrics(-1)
+
+	assert.InDelta(t, 0.0, cpu, 1e-9)
+	assert.InDelta(t, 0.0, mem, 1e-9)
+}
+
+func TestGetProcessMetrics_PermissionDeniedMemInfoReturnsZeroMem(t *testing.T) {
+	// PID 1 (init/launchd) is a valid process but MemoryInfo returns EPERM,
+	// covering the err != nil branch inside getProcessMetrics.
+	cpu, mem := getProcessMetrics(1)
+
+	// CPU may be 0 or a small value; memory must be 0 due to the error path.
+	assert.InDelta(t, 0.0, mem, 1e-9, "mem should be 0 when MemoryInfo is denied")
+	assert.GreaterOrEqual(t, cpu, 0.0)
+}
+
+// --- metricsTickCmd closure coverage ---------------------------------------
+
+func TestMetricsTickCmd_ClosureReturnsMetricsTickMsg(t *testing.T) {
+	t.Parallel()
+
+	cmd := metricsTickCmd()
+	require.NotNil(t, cmd)
+
+	// Calling cmd() blocks for 2 s until the tick fires, then returns metricsTickMsg.
+	msg := cmd()
+
+	_, ok := msg.(metricsTickMsg)
+	assert.True(t, ok)
+}
+
+// --- Cmd() error-path tests ------------------------------------------------
+
+func TestCmd_MissingConfigReturnsErrSilent(t *testing.T) {
+	c := Cmd()
+
+	var errBuf bytes.Buffer
+
+	c.SetErr(&errBuf)
+
+	require.NoError(t, c.Flags().Set("config", "/tmp/drdev-definitely-does-not-exist.yaml"))
+
+	err := c.RunE(c, []string{})
+
+	require.ErrorIs(t, err, cli.ErrSilent)
+	assert.Contains(t, errBuf.String(), "not found")
+}
+
+func TestCmd_EmptyServicesReturnsError(t *testing.T) {
+	path := writeTempConfig(t, "services: []\n")
+
+	c := Cmd()
+	require.NoError(t, c.Flags().Set("config", path))
+
+	err := c.RunE(c, []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no services")
+}
+
+func TestCmd_InvalidYAMLReturnsError(t *testing.T) {
+	path := writeTempConfig(t, "services: [\n  bad yaml\n")
+
+	c := Cmd()
+	require.NoError(t, c.Flags().Set("config", path))
+
+	err := c.RunE(c, []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "loading config")
+}
+
+func TestCmd_ValidationErrorReturnsError(t *testing.T) {
+	// Missing command field triggers validation failure.
+	path := writeTempConfig(t, "services:\n  - name: svc\n")
+
+	c := Cmd()
+	require.NoError(t, c.Flags().Set("config", path))
+
+	err := c.RunE(c, []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "loading config")
+}
+
+func TestCmd_TelemetryExtractorIncludesConfigAndSkipPreflight(t *testing.T) {
+	c := Cmd()
+	require.NoError(t, c.Flags().Set("config", "custom.yaml"))
+	require.NoError(t, c.Flags().Set("skip-preflight", "true"))
+
+	event, ok := telemetry.EventFor(c, []string{})
+
+	require.True(t, ok)
+	assert.Equal(t, "custom.yaml", event.EventProperties["config_file"])
+	assert.Equal(t, true, event.EventProperties["skip_preflight"])
+}
+
+func TestCmd_NoTTY_ReturnsRunningTUIError(t *testing.T) {
+	// A valid config with one service. This exercises the runPreflight call
+	// and the tui.Run call. In a test environment (no TTY), bubbletea returns
+	// "could not open a new TTY" which is wrapped as "running TUI: ...".
+	content := `
+services:
+  - name: svc
+    command: echo hello
+`
+	path := writeTempConfig(t, content)
+	c := Cmd()
+	require.NoError(t, c.Flags().Set("config", path))
+
+	err := c.RunE(c, []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "running TUI")
 }
