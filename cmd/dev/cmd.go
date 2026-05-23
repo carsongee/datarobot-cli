@@ -66,12 +66,12 @@ Example config (drdev.yaml):
       probe: tcp
 
 Keybindings:
-  j / k      Navigate service list
-  r          Restart selected service
-  m          Mute / unmute logs for selected service
-  /          Filter logs by text (Enter to apply, Esc to clear)
-  G          Scroll logs to bottom
-  q / Esc    Quit and stop all services`,
+  j / k / ↑↓  Navigate service list
+  r            Restart selected service
+  m            Mute / unmute logs for selected service
+  /            Filter logs by text (Enter to apply, Esc to clear)
+  G            Scroll logs to bottom
+  q / Esc      Quit and stop all services`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig(opts.ConfigFile)
 			if err != nil {
