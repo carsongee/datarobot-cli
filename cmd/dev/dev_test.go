@@ -188,6 +188,36 @@ services:
 	require.Error(t, err)
 }
 
+func TestLoadConfig_Validation_TCPProbePortOutOfRange(t *testing.T) {
+	content := `
+services:
+  - name: api
+    command: go run .
+    probe: tcp
+    port: 99999
+`
+	path := writeTempConfig(t, content)
+
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "valid port")
+}
+
+func TestLoadConfig_Validation_HTTPProbePortOutOfRange(t *testing.T) {
+	content := `
+services:
+  - name: api
+    command: go run .
+    probe: http
+    port: 70000
+`
+	path := writeTempConfig(t, content)
+
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "valid port")
+}
+
 func TestLoadConfig_Validation_UnknownProbeType(t *testing.T) {
 	content := `
 services:

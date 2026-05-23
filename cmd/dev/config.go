@@ -101,6 +101,10 @@ func (c *Config) validate() error {
 	return nil
 }
 
+func validPort(p int) bool {
+	return p >= 1 && p <= 65535
+}
+
 func (sc *ServiceConfig) validateProbe() error {
 	if sc.Command == "" {
 		return fmt.Errorf("service %q: command is required", sc.Name)
@@ -108,12 +112,12 @@ func (sc *ServiceConfig) validateProbe() error {
 
 	switch sc.Probe {
 	case ProbeTCP:
-		if sc.Port <= 0 {
-			return fmt.Errorf("service %q: probe tcp requires port", sc.Name)
+		if !validPort(sc.Port) {
+			return fmt.Errorf("service %q: probe tcp requires a valid port (1–65535)", sc.Name)
 		}
 	case ProbeHTTP:
-		if sc.URL == "" && sc.Port <= 0 {
-			return fmt.Errorf("service %q: probe http requires url or port", sc.Name)
+		if sc.URL == "" && !validPort(sc.Port) {
+			return fmt.Errorf("service %q: probe http requires url or a valid port (1–65535)", sc.Name)
 		}
 
 		if sc.URL == "" {
