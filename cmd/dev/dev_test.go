@@ -1329,6 +1329,28 @@ func TestRefreshLogViewport_UninitializedReturnsEarly(t *testing.T) {
 	m.refreshLogViewport() // must not panic
 }
 
+func TestRefreshLogViewport_NoLogsShowsWaitingMessage(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	m.refreshLogViewport()
+
+	content := m.logView.View()
+
+	assert.Contains(t, content, "Waiting for output")
+}
+
+func TestRefreshLogViewport_FilterAllExcludedShowsNoMatchMessage(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].logs.add(LogEntry{Line: "hello world", Timestamp: time.Now()})
+	m.filterInput.SetValue("zzznomatch")
+	m.refreshLogViewport()
+
+	content := m.logView.View()
+
+	assert.Contains(t, content, "No matching lines")
+	assert.Contains(t, content, "zzznomatch")
+}
+
 func TestRefreshLogViewport_FilterExcludesNonMatchingLines(t *testing.T) {
 	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
 	m.services[0].logs.add(LogEntry{Line: "match this line", Timestamp: time.Now()})

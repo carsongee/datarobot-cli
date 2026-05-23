@@ -469,7 +469,18 @@ func (m *Model) refreshLogViewport() {
 		lines = append(lines, tui.DimStyle.Render(ts)+"  "+colorStyle.Render(e.Line))
 	}
 
-	m.logView.SetContent(strings.Join(lines, "\n"))
+	var content string
+
+	switch {
+	case len(lines) > 0:
+		content = strings.Join(lines, "\n")
+	case len(entries) == 0:
+		content = tui.DimStyle.Render("  Waiting for output…")
+	default:
+		content = tui.DimStyle.Render("  No matching lines for filter \"" + filter + "\"")
+	}
+
+	m.logView.SetContent(content)
 
 	if m.logAutoScrl {
 		m.logView.GotoBottom()
