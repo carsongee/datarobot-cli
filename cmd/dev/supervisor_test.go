@@ -369,4 +369,3 @@ func TestSupervisor_Start_GoroutinePanicIsCaught(t *testing.T) {
 	// Stop() calls wg.Wait(), ensuring the goroutine has fully exited.
 	assert.NotPanics(t, sup.Stop)
 }
-

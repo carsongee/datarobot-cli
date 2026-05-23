@@ -1130,6 +1130,32 @@ func TestHandleKey_KNavigatesUp(t *testing.T) {
 	assert.Equal(t, 0, tm.selected)
 }
 
+func TestHandleKey_DownArrowNavigatesDown(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 0
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	tm := result.(Model)
+
+	assert.Equal(t, 1, tm.selected)
+}
+
+func TestHandleKey_UpArrowNavigatesUp(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 1
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	tm := result.(Model)
+
+	assert.Equal(t, 0, tm.selected)
+}
+
 func TestHandleKey_MTogglesMute(t *testing.T) {
 	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
 
