@@ -1369,6 +1369,124 @@ func TestHandleKey_GEnablesAutoScroll(t *testing.T) {
 	assert.True(t, tm.logAutoScrl)
 }
 
+func TestHandleKey_OOpensURLWhenServiceHasPort(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true", Port: 8080}})
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	assert.NotNil(t, cmd, "o key should return a Cmd when service has a port")
+}
+
+func TestHandleKey_OReturnsNilCmdWhenNoURL(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	assert.Nil(t, cmd, "o key should return nil Cmd when service has no port or URL")
+}
+
+func TestHandleOpenURL_UsesConfigURL(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "svc", Command: "true", Probe: ProbeHTTP, URL: "http://localhost:8080/health"},
+	})
+
+	_, cmd := m.handleOpenURL()
+
+	assert.NotNil(t, cmd, "handleOpenURL should return a Cmd when cfg.URL is set")
+}
+
+func TestHandleOpenURL_FallsBackToPort(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "svc", Command: "true", Port: 9000},
+	})
+
+	_, cmd := m.handleOpenURL()
+
+	assert.NotNil(t, cmd, "handleOpenURL should return a Cmd when Port > 0 and URL empty")
+}
+
+func TestHandleOpenURL_ReturnsNilCmdWhenNoPortOrURL(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	_, cmd := m.handleOpenURL()
+
+	assert.Nil(t, cmd)
+}
+
+func TestOpenBrowserCmd_DoesNotPanic(t *testing.T) {
+	// openBrowserCmd returns a Cmd; calling it may fail (no browser in CI) but must not panic.
+	cmd := openBrowserCmd("http://localhost:9999")
+	require.NotNil(t, cmd)
+	assert.NotPanics(t, func() { cmd() })
+}
+
+func TestOpenBrowserCmdForOS_ErrorPathDoesNotPanic(t *testing.T) {
+	// "linux" produces "xdg-open" which does not exist on macOS/CI, exercising
+	// the cmd.Start() error branch without a real display or browser.
+	cmd := openBrowserCmdForOS("linux", "http://localhost:9999")
+	require.NotNil(t, cmd)
+	assert.NotPanics(t, func() { cmd() })
+}
+
+func TestBrowserCmdArgs_Darwin(t *testing.T) {
+	args := browserCmdArgs("darwin", "http://localhost:8080")
+
+	require.Len(t, args, 2)
+	assert.Equal(t, "open", args[0])
+	assert.Equal(t, "http://localhost:8080", args[1])
+}
+
+func TestBrowserCmdArgs_Windows(t *testing.T) {
+	args := browserCmdArgs("windows", "http://localhost:8080")
+
+	require.Len(t, args, 4)
+	assert.Equal(t, "cmd", args[0])
+	assert.Equal(t, "/c", args[1])
+	assert.Equal(t, "start", args[2])
+	assert.Equal(t, "http://localhost:8080", args[3])
+}
+
+func TestBrowserCmdArgs_Linux(t *testing.T) {
+	args := browserCmdArgs("linux", "http://example.com")
+
+	require.Len(t, args, 2)
+	assert.Equal(t, "xdg-open", args[0])
+	assert.Equal(t, "http://example.com", args[1])
+}
+
+func TestBrowserCmdArgs_UnknownOS(t *testing.T) {
+	args := browserCmdArgs("freebsd", "http://example.com")
+
+	require.Len(t, args, 2)
+	assert.Equal(t, "xdg-open", args[0])
+}
+
+func TestHandleViewportKey_GEnablesAutoScroll(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.logAutoScrl = false
+
+	result, _ := m.handleViewportKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	tm := result.(Model)
+
+	assert.True(t, tm.logAutoScrl)
+}
+
+func TestHandleViewportKey_OReturnsCmd(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true", Port: 3000}})
+
+	_, cmd := m.handleViewportKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	assert.NotNil(t, cmd)
+}
+
+func TestHandleViewportKey_UnknownKeyGoesToViewport(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	// 'x' is not handled by handleViewportKey → falls through to handleScrollViewport.
+	result, _ := m.handleViewportKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	_ = result.(Model)
+}
+
 func TestHandleKey_IgnoredWhileQuitting(t *testing.T) {
 	m := newInitializedModel(t, []ServiceConfig{
 		{Name: "a", Command: "true"},

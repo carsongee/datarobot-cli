@@ -17,6 +17,8 @@ package dev
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -255,15 +257,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshLogViewport()
 
 		return m, m.filterInput.Focus()
+	}
 
+	return m.handleViewportKey(msg)
+}
+
+// handleViewportKey handles G (scroll to bottom), o (open browser), and any
+// other key that should fall through to the log viewport for scrolling.
+func (m Model) handleViewportKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
 	case "G":
 		m.logAutoScrl = true
 		m.logView.GotoBottom()
 
 		return m, nil
+
+	case "o":
+		return m.handleOpenURL()
 	}
 
-	// Forward remaining keys to the log viewport for scrolling.
 	return m.handleScrollViewport(msg)
 }
 
@@ -324,6 +336,54 @@ func (m Model) handleMute() (tea.Model, tea.Cmd) {
 	m.refreshLogViewport()
 
 	return m, nil
+}
+
+func (m Model) handleOpenURL() (tea.Model, tea.Cmd) {
+	svc := &m.services[m.selected]
+
+	url := svc.cfg.URL
+	if url == "" && svc.cfg.Port > 0 {
+		url = fmt.Sprintf("http://localhost:%d", svc.cfg.Port)
+	}
+
+	if url == "" {
+		return m, nil
+	}
+
+	return m, openBrowserCmd(url)
+}
+
+// openBrowserCmd returns a tea.Cmd that opens url in the system default browser.
+// It uses the platform-appropriate command and runs it in a goroutine so it never
+// blocks the TUI event loop.
+func openBrowserCmd(url string) tea.Cmd {
+	return openBrowserCmdForOS(runtime.GOOS, url)
+}
+
+func openBrowserCmdForOS(goos, url string) tea.Cmd {
+	return func() tea.Msg {
+		args := browserCmdArgs(goos, url)
+		cmd := exec.Command(args[0], args[1:]...)
+
+		if err := cmd.Start(); err != nil {
+			log.Debug("dev: open browser failed", "url", url, "err", err)
+		}
+
+		return nil
+	}
+}
+
+// browserCmdArgs returns the command and arguments needed to open url in the
+// default browser for the given operating system. Extracted for testability.
+func browserCmdArgs(goos, url string) []string {
+	switch goos {
+	case "darwin":
+		return []string{"open", url}
+	case "windows":
+		return []string{"cmd", "/c", "start", url}
+	default:
+		return []string{"xdg-open", url}
+	}
 }
 
 func (m Model) handleRestart() (tea.Model, tea.Cmd) {
@@ -699,7 +759,7 @@ func (m Model) renderFooter() string {
 		return tui.DimStyle.Render("enter apply filter  ·  esc clear filter") + "\n"
 	}
 
-	return tui.DimStyle.Render("j/k navigate  ·  r restart  ·  m mute  ·  / filter  ·  G bottom  ·  q quit") + "\n"
+	return tui.DimStyle.Render("j/k navigate  ·  r restart  ·  m mute  ·  / filter  ·  G bottom  ·  o open  ·  q quit") + "\n"
 }
 
 // formatDuration returns a compact human-readable duration.

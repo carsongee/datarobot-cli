@@ -71,6 +71,7 @@ Keybindings:
   m            Mute / unmute logs for selected service
   /            Filter logs by text (Enter to apply, Esc to clear)
   G            Scroll logs to bottom
+  o            Open service URL in browser (http probe URL or localhost:<port>)
   q / Esc      Quit and stop all services`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig(opts.ConfigFile)
