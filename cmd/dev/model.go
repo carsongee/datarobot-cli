@@ -381,14 +381,21 @@ func (m *Model) applyServiceUpdate(u ServiceUpdate) {
 		if u.State != nil {
 			m.services[i].state = *u.State
 
-			if *u.State == StateRestarting || *u.State == StateStarting {
+			switch *u.State {
+			case StateRestarting:
 				m.services[i].startedAt = time.Now()
-			}
-
-			if *u.State == StateCrashed || *u.State == StateStopped {
+				m.services[i].logs.add(LogEntry{
+					Line:      "── restarted ──",
+					Timestamp: time.Now(),
+				})
+			case StateStarting:
+				m.services[i].startedAt = time.Now()
+			case StateCrashed, StateStopped:
 				m.services[i].pid = 0
 				m.services[i].cpuPct = 0
 				m.services[i].memMiB = 0
+			case StateHealthy:
+				// No additional state to update — metrics arrive separately via metricsTickMsg.
 			}
 		}
 

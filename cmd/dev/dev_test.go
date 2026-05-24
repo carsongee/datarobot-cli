@@ -525,6 +525,31 @@ func TestApplyServiceUpdate_RestartingResetsStartedAt(t *testing.T) {
 		"startedAt should be updated when state transitions to Restarting")
 }
 
+func TestApplyServiceUpdate_RestartingAddsRestartSeparatorLog(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	restarting := StateRestarting
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &restarting})
+
+	entries := m.services[0].logs.all()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "── restarted ──", entries[0].Line)
+}
+
+func TestApplyServiceUpdate_StartingDoesNotAddSeparatorLog(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+
+	starting := StateStarting
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &starting})
+
+	entries := m.services[0].logs.all()
+	assert.Empty(t, entries, "initial start should not add a separator log")
+}
+
 func TestApplyServiceUpdate_StartingResetsStartedAt(t *testing.T) {
 	m := NewModel(t.Context(), &Config{
 		Services: []ServiceConfig{
