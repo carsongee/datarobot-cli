@@ -16,6 +16,7 @@ package dev
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -105,6 +106,13 @@ func validPort(p int) bool {
 	return p >= 1 && p <= 65535
 }
 
+// validHTTPURL returns true when rawURL is an absolute http/https URL with a host.
+func validHTTPURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 func (sc *ServiceConfig) validateProbe() error {
 	if sc.Command == "" {
 		return fmt.Errorf("service %q: command is required", sc.Name)
@@ -116,17 +124,27 @@ func (sc *ServiceConfig) validateProbe() error {
 			return fmt.Errorf("service %q: probe tcp requires a valid port (1–65535)", sc.Name)
 		}
 	case ProbeHTTP:
-		if sc.URL == "" && !validPort(sc.Port) {
-			return fmt.Errorf("service %q: probe http requires url or a valid port (1–65535)", sc.Name)
-		}
-
-		if sc.URL == "" {
-			sc.URL = fmt.Sprintf("http://localhost:%d", sc.Port)
-		}
+		return sc.validateHTTPProbe()
 	case ProbeNone, "":
 		// No probe — mark healthy immediately.
 	default:
 		return fmt.Errorf("service %q: unknown probe type %q (want tcp, http, or none)", sc.Name, sc.Probe)
+	}
+
+	return nil
+}
+
+func (sc *ServiceConfig) validateHTTPProbe() error {
+	if sc.URL == "" && !validPort(sc.Port) {
+		return fmt.Errorf("service %q: probe http requires url or a valid port (1–65535)", sc.Name)
+	}
+
+	if sc.URL == "" {
+		sc.URL = fmt.Sprintf("http://localhost:%d", sc.Port)
+	}
+
+	if !validHTTPURL(sc.URL) {
+		return fmt.Errorf("service %q: probe http url %q must be an absolute http/https URL", sc.Name, sc.URL)
 	}
 
 	return nil

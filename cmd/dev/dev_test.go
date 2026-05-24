@@ -218,6 +218,87 @@ services:
 	assert.Contains(t, err.Error(), "valid port")
 }
 
+func TestLoadConfig_Validation_HTTPProbeInvalidURL(t *testing.T) {
+	content := `
+services:
+  - name: api
+    command: go run .
+    probe: http
+    url: "not-a-url"
+`
+	path := writeTempConfig(t, content)
+
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "absolute http/https URL")
+}
+
+func TestLoadConfig_Validation_HTTPProbeRelativeURL(t *testing.T) {
+	content := `
+services:
+  - name: api
+    command: go run .
+    probe: http
+    url: "/health"
+`
+	path := writeTempConfig(t, content)
+
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "absolute http/https URL")
+}
+
+func TestLoadConfig_Validation_HTTPProbeValidURL(t *testing.T) {
+	content := `
+services:
+  - name: api
+    command: go run .
+    probe: http
+    url: "http://localhost:8080/health"
+`
+	path := writeTempConfig(t, content)
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:8080/health", cfg.Services[0].URL)
+}
+
+func TestLoadConfig_Validation_HTTPProbeHTTPSURL(t *testing.T) {
+	content := `
+services:
+  - name: api
+    command: go run .
+    probe: http
+    url: "https://localhost:8443/ready"
+`
+	path := writeTempConfig(t, content)
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	assert.Equal(t, "https://localhost:8443/ready", cfg.Services[0].URL)
+}
+
+func TestValidHTTPURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"http://localhost:8080", true},
+		{"https://example.com/health", true},
+		{"http://127.0.0.1:9000/ready", true},
+		{"not-a-url", false},
+		{"/relative/path", false},
+		{"", false},
+		{"ftp://localhost/file", false},
+		{"//localhost:8080", false},
+	}
+
+	for _, tc := range tests {
+		got := validHTTPURL(tc.url)
+		assert.Equal(t, tc.want, got, "validHTTPURL(%q)", tc.url)
+	}
+}
+
 func TestLoadConfig_Validation_UnknownProbeType(t *testing.T) {
 	content := `
 services:
