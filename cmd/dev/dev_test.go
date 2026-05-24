@@ -685,6 +685,7 @@ func TestRenderFooter_ContainsKeybindings(t *testing.T) {
 	assert.Contains(t, out, "restart")
 	assert.Contains(t, out, "mute")
 	assert.Contains(t, out, "quit")
+	assert.Contains(t, out, "open")
 }
 
 func TestRenderFooter_FilterMode(t *testing.T) {
@@ -769,6 +770,10 @@ func TestFormatDuration(t *testing.T) {
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, formatDuration(tc.d), "formatDuration(%v)", tc.d)
 	}
+}
+
+func TestFormatDuration_NegativeDurationShowsZero(t *testing.T) {
+	assert.Equal(t, "0s", formatDuration(-5*time.Second))
 }
 
 func TestTruncate(t *testing.T) {

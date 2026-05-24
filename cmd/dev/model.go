@@ -764,6 +764,10 @@ func (m Model) renderFooter() string {
 
 // formatDuration returns a compact human-readable duration.
 func formatDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+
 	d = d.Round(time.Second)
 	h := d / time.Hour
 	d -= h * time.Hour
