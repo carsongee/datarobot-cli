@@ -926,6 +926,35 @@ func TestLineWriter_FlushEmpty(t *testing.T) {
 	assert.Empty(t, ch)
 }
 
+func TestLineWriter_WriteDropsWhenChannelFull(t *testing.T) {
+	ch := make(chan ServiceUpdate) // unbuffered: send always hits default
+	w := &lineWriter{name: "svc", ch: ch}
+
+	n, err := w.Write([]byte("hello\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 6, n)
+	assert.Empty(t, ch)
+}
+
+func TestLineWriter_FlushDropsWhenChannelFull(t *testing.T) {
+	ch := make(chan ServiceUpdate) // unbuffered: flush always hits default
+	w := &lineWriter{name: "svc", ch: ch}
+
+	w.buf.WriteString("partial line")
+	w.flush()
+
+	assert.Empty(t, ch)
+}
+
+func TestSendUpdate_DropsWhenChannelFull(t *testing.T) {
+	ch := make(chan ServiceUpdate) // unbuffered: always hits default
+	sup := &Supervisor{cfg: ServiceConfig{Name: "svc"}, ch: ch}
+
+	sup.sendUpdate(ServiceUpdate{Name: "svc"})
+
+	assert.Empty(t, ch)
+}
+
 // --- buildEnv tests -----------------------------------------------------
 
 func TestBuildEnv_ServiceVarsOverrideInherited(t *testing.T) {
