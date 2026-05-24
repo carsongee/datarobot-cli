@@ -1633,6 +1633,21 @@ func TestRenderLogPanel_MutedShowsMessage(t *testing.T) {
 	assert.Contains(t, out, "muted")
 }
 
+func TestRenderLogPanel_MutedAndFilteringShowsFilterRow(t *testing.T) {
+	// When a service is muted AND the filter input is active, the filter input
+	// row should still appear so the user can see their filter (matching
+	// logViewHeight which always reserves a row for it when filtering=true).
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].muted = true
+	m.filtering = true
+	m.filterInput.SetValue("myquery")
+
+	out := m.renderLogPanel()
+
+	assert.Contains(t, out, "muted")
+	assert.Contains(t, out, "myquery")
+}
+
 func TestRenderLogPanel_ShowsLogLines(t *testing.T) {
 	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
 	m.services[0].logs.add(LogEntry{Line: "hello world", Timestamp: time.Now()})
@@ -2199,6 +2214,16 @@ func TestRenderServiceTable_NarrowViewportClampsNameWidth(t *testing.T) {
 	out := m.renderServiceTable()
 
 	assert.NotEmpty(t, out)
+}
+
+func TestRenderServiceTable_NarrowViewportWithMutedServiceDoesNotPanic(t *testing.T) {
+	// Muted services use truncate(name, nameWidth-4). When nameWidth is clamped
+	// to the minimum (10), nameWidth-4=6. This must not panic with an out-of-range slice.
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.width = 5
+	m.services[0].muted = true
+
+	assert.NotPanics(t, func() { m.renderServiceTable() })
 }
 
 // --- handleRestart cmd body coverage ---------------------------------------
