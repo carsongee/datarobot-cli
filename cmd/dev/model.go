@@ -387,6 +387,7 @@ func (m *Model) applyServiceUpdate(u ServiceUpdate) {
 				m.services[i].logs.add(LogEntry{
 					Line:      "── restarted ──",
 					Timestamp: time.Now(),
+					IsSep:     true,
 				})
 			case StateStarting:
 				m.services[i].startedAt = time.Now()
@@ -467,16 +468,7 @@ func (m *Model) refreshLogViewport() {
 	colorStyle := lipgloss.NewStyle().Foreground(svc.color)
 	filter := strings.ToLower(m.filterInput.Value())
 
-	var lines []string
-
-	for _, e := range entries {
-		if filter != "" && !strings.Contains(strings.ToLower(e.Line), filter) {
-			continue
-		}
-
-		ts := e.Timestamp.Format("15:04:05")
-		lines = append(lines, tui.DimStyle.Render(ts)+"  "+colorStyle.Render(e.Line))
-	}
+	lines := filterAndRenderEntries(entries, filter, colorStyle)
 
 	m.logFilteredCount = len(lines)
 	m.logTotalCount = len(entries)
@@ -745,4 +737,25 @@ func truncate(s string, n int) string {
 // this correctly handles ANSI escape sequences embedded in text.
 func padCell(text string, width int) string {
 	return lipgloss.NewStyle().Width(width).Render(text)
+}
+
+// filterAndRenderEntries returns the formatted log lines that pass the filter.
+// Separator entries (IsSep) are rendered dimmed without a timestamp or color.
+func filterAndRenderEntries(entries []LogEntry, filter string, colorStyle lipgloss.Style) []string {
+	var lines []string
+
+	for _, e := range entries {
+		if filter != "" && !strings.Contains(strings.ToLower(e.Line), filter) {
+			continue
+		}
+
+		if e.IsSep {
+			lines = append(lines, tui.DimStyle.Render("  "+e.Line))
+		} else {
+			ts := e.Timestamp.Format("15:04:05")
+			lines = append(lines, tui.DimStyle.Render(ts)+"  "+colorStyle.Render(e.Line))
+		}
+	}
+
+	return lines
 }

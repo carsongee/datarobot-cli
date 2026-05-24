@@ -69,6 +69,7 @@ type ServiceUpdate struct {
 type LogEntry struct {
 	Line      string
 	Timestamp time.Time
+	IsSep     bool // true for synthetic separator lines (e.g. "── restarted ──")
 }
 
 const maxLogLines = 500

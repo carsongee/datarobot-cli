@@ -1599,6 +1599,48 @@ func TestRefreshLogViewport_FilterExcludesNonMatchingLines(t *testing.T) {
 	assert.NotContains(t, content, "skip foobar")
 }
 
+func TestRefreshLogViewport_SeparatorRenderedDimWithoutTimestamp(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	m.services[0].logs.add(LogEntry{Line: "regular line", Timestamp: time.Now()})
+	m.services[0].logs.add(LogEntry{Line: "── restarted ──", Timestamp: time.Now(), IsSep: true})
+
+	m.refreshLogViewport()
+
+	content := m.logView.View()
+	assert.Contains(t, content, "── restarted ──")
+	assert.Contains(t, content, "regular line")
+}
+
+func TestFilterAndRenderEntries_SeparatorRenderedWithoutTimestamp(t *testing.T) {
+	color := lipgloss.NewStyle()
+	entries := []LogEntry{
+		{Line: "log line", Timestamp: time.Now()},
+		{Line: "── restarted ──", Timestamp: time.Now(), IsSep: true},
+	}
+
+	lines := filterAndRenderEntries(entries, "", color)
+
+	require.Len(t, lines, 2)
+	assert.Contains(t, lines[0], "log line")
+	assert.Contains(t, lines[1], "── restarted ──")
+	// Separator should not contain a timestamp prefix (HH:MM:SS).
+	assert.NotRegexp(t, `\d{2}:\d{2}:\d{2}`, lines[1])
+}
+
+func TestFilterAndRenderEntries_SeparatorExcludedByFilter(t *testing.T) {
+	color := lipgloss.NewStyle()
+	entries := []LogEntry{
+		{Line: "── restarted ──", Timestamp: time.Now(), IsSep: true},
+		{Line: "error starting", Timestamp: time.Now()},
+	}
+
+	lines := filterAndRenderEntries(entries, "error", color)
+
+	require.Len(t, lines, 1)
+	assert.Contains(t, lines[0], "error starting")
+}
+
 func TestRefreshLogViewport_AutoScrollGoesToBottom(t *testing.T) {
 	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
 	m.logAutoScrl = true
