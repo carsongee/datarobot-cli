@@ -755,6 +755,48 @@ func TestRenderServiceRow_SelectedCursor(t *testing.T) {
 	assert.NotContains(t, unselected, "▶")
 }
 
+func TestRenderServiceRow_HealthyWithMetrics(t *testing.T) {
+	// End-to-end: verify renderServiceRow integrates renderCPU / renderMem for
+	// a healthy service with non-zero CPU and memory.
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true", Port: 9000}})
+	m.services[0].state = StateHealthy
+	m.services[0].cpuPct = 25.3
+	m.services[0].memMiB = 256
+
+	row := m.renderServiceRow(0, 30, 12, 7, 8, 7, 8)
+
+	assert.Contains(t, row, "25.3%")
+	assert.Contains(t, row, "256MiB")
+	assert.Contains(t, row, "9000")
+}
+
+func TestRenderServiceRow_CrashedHidesCPUAndMEM(t *testing.T) {
+	// Crashed services must show "-" in CPU and MEM columns even if the
+	// collector left non-zero values (applyServiceUpdate clears them, but
+	// renderCPU/renderMem must also guard against state transitions that
+	// arrive before the next metrics tick clears them).
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].state = StateCrashed
+	m.services[0].cpuPct = 50.0 // deliberately stale
+	m.services[0].memMiB = 128  // deliberately stale
+
+	row := m.renderServiceRow(0, 30, 12, 7, 8, 7, 8)
+
+	assert.NotContains(t, row, "50.0%")
+	assert.NotContains(t, row, "128MiB")
+}
+
+func TestRenderServiceRow_GiBMemoryFormat(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+	m.services[0].state = StateHealthy
+	m.services[0].memMiB = 2048 // 2 GiB
+
+	row := m.renderServiceRow(0, 30, 12, 7, 8, 7, 8)
+
+	assert.Contains(t, row, "2.0GiB")
+	assert.NotContains(t, row, "2048MiB")
+}
+
 // --- helper function tests ----------------------------------------------
 
 func TestFormatDuration(t *testing.T) {
@@ -1846,6 +1888,22 @@ func TestUpdate_ServiceUpdateMessageAppliesState(t *testing.T) {
 	tm := result.(Model)
 
 	assert.Equal(t, StateHealthy, tm.services[0].state)
+}
+
+func TestUpdate_ServiceUpdateWhileQuitting_StillApplied(t *testing.T) {
+	// Service state updates should still be applied while quitting so the
+	// TUI reflects each service reaching StateStopped during the shutdown.
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true"}},
+	}, nil)
+	m.initialized = true
+	m.quitting = true
+
+	stopped := StateStopped
+	result, _ := m.Update(serviceUpdateMsg{Name: "svc", State: &stopped})
+	tm := result.(Model)
+
+	assert.Equal(t, StateStopped, tm.services[0].state)
 }
 
 func TestUpdate_ShutdownDoneReturnsQuit(t *testing.T) {
