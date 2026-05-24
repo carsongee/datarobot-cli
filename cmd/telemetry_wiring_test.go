@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/datarobot/cli/cmd/dev"
 	"github.com/datarobot/cli/cmd/workload"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -97,6 +98,17 @@ func TestTelemetryWiring_AllWorkloadCommandsTracked(t *testing.T) {
 				"command %q must be wired to telemetry via telemetry.Track / TrackWith", path)
 		})
 	}
+}
+
+// TestTelemetryWiring_DevCommandTracked verifies `dr dev` has the telemetry
+// annotation. Because `dr dev` is feature-gated it is absent from the live
+// RootCmd when DATAROBOT_CLI_FEATURE_DEV is unset, so we test dev.Cmd()
+// directly rather than walking RootCmd — the same approach used for workload.
+func TestTelemetryWiring_DevCommandTracked(t *testing.T) {
+	cmd := dev.Cmd()
+
+	assert.Containsf(t, cmd.Annotations, "telemetry",
+		"dr dev must be wired to telemetry via telemetry.Track / TrackWith")
 }
 
 // findCommandByPath locates a descendant command by its full CommandPath
