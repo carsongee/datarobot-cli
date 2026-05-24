@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -396,6 +397,40 @@ func TestMakeCommand_CancelWithDeadProcess_FallsBackToSignal(t *testing.T) {
 	// Cancel on a dead process: Getpgid returns ESRCH → falls back to Signal.
 	// Signal also returns ESRCH, but Cancel must not panic.
 	_ = cmd.Cancel()
+}
+
+func TestSupervisor_ConcurrentRestarts_SerializedByMutex(t *testing.T) {
+	// Fire two concurrent restarts and verify neither panics and the supervisor
+	// ends up in a stable Healthy state. The restartMu serializes them so only
+	// one process is alive at any given time.
+	ch := make(chan ServiceUpdate, 500)
+	cfg := ServiceConfig{Name: "svc", Command: "sleep 60", Probe: ProbeNone}
+	sup := NewSupervisor(cfg, ch)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	sup.Start(ctx)
+	drainUntilState(t, ch, StateHealthy, 3*time.Second)
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
+	for range 2 {
+		go func() {
+			defer wg.Done()
+
+			sup.Restart(ctx)
+		}()
+	}
+
+	wg.Wait()
+
+	// After both restarts complete the supervisor must be healthy — not crashed or hung.
+	drainUntilState(t, ch, StateHealthy, 10*time.Second)
+
+	sup.Stop()
 }
 
 func TestSupervisor_Start_GoroutinePanicIsCaught(t *testing.T) {
