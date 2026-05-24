@@ -254,18 +254,19 @@ func (s *Supervisor) run(ctx context.Context) {
 
 	crashed := StateCrashed
 
+	exitMsg := "exited: status 0"
 	if err != nil {
-		s.sendUpdate(ServiceUpdate{
-			Name:  s.cfg.Name,
-			State: &crashed,
-			LogLine: &LogEntry{
-				Line:      fmt.Sprintf("exited: %v", err),
-				Timestamp: time.Now(),
-			},
-		})
-	} else {
-		s.sendUpdate(ServiceUpdate{Name: s.cfg.Name, State: &crashed})
+		exitMsg = fmt.Sprintf("exited: %v", err)
 	}
+
+	s.sendUpdate(ServiceUpdate{
+		Name:  s.cfg.Name,
+		State: &crashed,
+		LogLine: &LogEntry{
+			Line:      exitMsg,
+			Timestamp: time.Now(),
+		},
+	})
 }
 
 func (s *Supervisor) runProbe(ctx context.Context) {

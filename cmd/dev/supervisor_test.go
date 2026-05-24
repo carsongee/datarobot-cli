@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,52 @@ func TestSupervisor_ProcessExitZero_SendsCrashedState(t *testing.T) {
 
 	sup.Start(t.Context())
 	drainUntilState(t, ch, StateCrashed, 5*time.Second)
+}
+
+func TestSupervisor_ProcessExitZero_LogsExitStatus(t *testing.T) {
+	ch := make(chan ServiceUpdate, 200)
+	cfg := ServiceConfig{Name: "svc", Command: "exit 0"}
+	sup := NewSupervisor(cfg, ch)
+
+	sup.Start(t.Context())
+
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+
+	for {
+		select {
+		case u := <-ch:
+			if u.LogLine != nil && u.LogLine.Line == "exited: status 0" {
+				return
+			}
+		case <-deadline.C:
+			t.Fatal("timeout waiting for 'exited: status 0' log line")
+		}
+	}
+}
+
+func TestSupervisor_ProcessCrash_LogsExitError(t *testing.T) {
+	ch := make(chan ServiceUpdate, 200)
+	cfg := ServiceConfig{Name: "svc", Command: "exit 1"}
+	sup := NewSupervisor(cfg, ch)
+
+	sup.Start(t.Context())
+
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+
+	for {
+		select {
+		case u := <-ch:
+			if u.LogLine != nil && strings.Contains(u.LogLine.Line, "exited:") {
+				assert.Contains(t, u.LogLine.Line, "exit status")
+
+				return
+			}
+		case <-deadline.C:
+			t.Fatal("timeout waiting for 'exited:' log line")
+		}
+	}
 }
 
 func TestSupervisor_ProbeNone_SendsHealthyImmediately(t *testing.T) {
