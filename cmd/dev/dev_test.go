@@ -1250,6 +1250,32 @@ func TestHandleNavigate_DownAtBoundaryNoChange(t *testing.T) {
 	assert.Equal(t, 1, tm.selected)
 }
 
+func TestHandleNavigate_ResetsLogAutoScroll(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{
+		{Name: "a", Command: "true"},
+		{Name: "b", Command: "true"},
+	})
+	m.selected = 0
+	m.logAutoScrl = false // simulate user having scrolled up
+
+	result, _ := m.handleNavigate(1)
+	tm := result.(Model)
+
+	assert.True(t, tm.logAutoScrl, "navigating to another service should re-enable auto-scroll")
+}
+
+func TestHandleNavigate_AtBoundaryDoesNotResetAutoScroll(t *testing.T) {
+	// When navigation is blocked by a boundary, logAutoScrl should not change.
+	m := newInitializedModel(t, []ServiceConfig{{Name: "a", Command: "true"}})
+	m.selected = 0
+	m.logAutoScrl = false
+
+	result, _ := m.handleNavigate(-1) // already at top
+	tm := result.(Model)
+
+	assert.False(t, tm.logAutoScrl, "boundary no-op should not reset auto-scroll")
+}
+
 // --- handleMute tests ------------------------------------------------------
 
 func TestHandleMute_TogglesOn(t *testing.T) {
@@ -1920,6 +1946,27 @@ func TestHandleKey_UnknownKeyGoesToViewport(t *testing.T) {
 }
 
 // --- handleRestart (happy path) tests --------------------------------------
+
+func TestHandleRestart_ImmediatelyClearsMetricsAndEnablesAutoScroll(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	// Seed non-zero metrics and disable auto-scroll.
+	m.services[0].pid = 999
+	m.services[0].cpuPct = 15.0
+	m.services[0].memMiB = 128
+	m.logAutoScrl = false
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	result, _ := m.handleRestart()
+	tm := result.(Model)
+
+	assert.Equal(t, 0, tm.services[0].pid)
+	assert.InDelta(t, 0.0, tm.services[0].cpuPct, 1e-9)
+	assert.InDelta(t, 0.0, tm.services[0].memMiB, 1e-9)
+	assert.True(t, tm.logAutoScrl, "restart should re-enable auto-scroll to follow new output")
+}
 
 func TestHandleRestart_LaunchesCommandWhenNotRestarting(t *testing.T) {
 	m := NewModel(t.Context(), &Config{
