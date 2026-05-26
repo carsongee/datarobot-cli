@@ -182,6 +182,18 @@ func (s *Supervisor) Restart(ctx context.Context) {
 	s.Start(ctx)
 }
 
+// StopAndNotify stops the service and sends a StateStopped update.
+// It serializes with concurrent Restart calls via restartMu.
+func (s *Supervisor) StopAndNotify() {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+
+	s.Stop()
+
+	stopped := StateStopped
+	s.sendUpdate(ServiceUpdate{Name: s.cfg.Name, State: &stopped})
+}
+
 func (s *Supervisor) run(ctx context.Context) {
 	starting := StateStarting
 	s.sendUpdate(ServiceUpdate{Name: s.cfg.Name, State: &starting})

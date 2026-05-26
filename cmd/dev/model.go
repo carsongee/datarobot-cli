@@ -249,6 +249,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m.handleRestart()
 
+	case "s":
+		return m.handleStop()
+
 	case "m":
 		return m.handleMute()
 
@@ -415,6 +418,34 @@ func (m Model) handleRestart() (tea.Model, tea.Cmd) {
 		sup.Restart(ctx)
 
 		return restartDoneMsg{}
+	}
+}
+
+func (m Model) handleStop() (tea.Model, tea.Cmd) {
+	idx := m.selected
+
+	// Skip if already stopped or a restart is in flight (would race with Stop).
+	if m.services[idx].state == StateStopped || m.services[idx].state == StateRestarting {
+		return m, nil
+	}
+
+	sup := m.supervisors[idx]
+
+	// Reset metrics immediately so stale values don't linger.
+	m.services[idx].cpuPct = 0
+	m.services[idx].memMiB = 0
+	m.services[idx].pid = 0
+
+	return m, func() tea.Msg {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Debug("dev: stop goroutine panic recovered", "service", sup.cfg.Name, "panic", r)
+			}
+		}()
+
+		sup.StopAndNotify()
+
+		return nil
 	}
 }
 
@@ -759,7 +790,7 @@ func (m Model) renderFooter() string {
 		return tui.DimStyle.Render("enter apply filter  ·  esc clear filter") + "\n"
 	}
 
-	return tui.DimStyle.Render("j/k navigate  ·  r restart  ·  m mute  ·  / filter  ·  G bottom  ·  o open  ·  q quit") + "\n"
+	return tui.DimStyle.Render("j/k navigate  ·  r restart  ·  s stop  ·  m mute  ·  / filter  ·  G bottom  ·  o open  ·  q quit") + "\n"
 }
 
 // formatDuration returns a compact human-readable duration.

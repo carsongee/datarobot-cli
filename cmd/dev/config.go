@@ -15,6 +15,7 @@
 package dev
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -79,6 +80,10 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if len(c.Services) == 0 {
+		return errors.New("config must define at least one service")
+	}
+
 	seen := make(map[string]bool, len(c.Services))
 
 	for i := range c.Services {

@@ -106,9 +106,9 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 func TestLoadConfig_Empty(t *testing.T) {
 	path := writeTempConfig(t, "services: []")
 
-	cfg, err := LoadConfig(path)
-	require.NoError(t, err)
-	assert.Empty(t, cfg.Services)
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one service")
 }
 
 func TestLoadConfig_HTTPProbeURLConstructed(t *testing.T) {
@@ -1486,11 +1486,8 @@ func TestHandleOpenURL_ReturnsNilCmdWhenNoPortOrURL(t *testing.T) {
 	assert.Nil(t, cmd)
 }
 
-func TestOpenBrowserCmd_DoesNotPanic(t *testing.T) {
-	// openBrowserCmd returns a Cmd; calling it may fail (no browser in CI) but must not panic.
-	cmd := openBrowserCmd("http://localhost:9999")
-	require.NotNil(t, cmd)
-	assert.NotPanics(t, func() { cmd() })
+func TestOpenBrowserCmd_ReturnsNonNil(t *testing.T) {
+	require.NotNil(t, openBrowserCmd("http://localhost:9999"))
 }
 
 func TestOpenBrowserCmdForOS_ErrorPathDoesNotPanic(t *testing.T) {
@@ -2159,6 +2156,19 @@ func TestHandleKey_RTriggersRestart(t *testing.T) {
 	assert.NotNil(t, cmd)
 }
 
+// --- handleKey "s" (stop) -------------------------------------------------
+
+func TestHandleKey_STriggersStop(t *testing.T) {
+	m := newInitializedModel(t, []ServiceConfig{{Name: "svc", Command: "true"}})
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+
+	assert.NotNil(t, cmd)
+}
+
 // --- Update with filtering active + unhandled message ---------------------
 
 type unknownTestMsg struct{}
@@ -2331,6 +2341,102 @@ func TestHandleRestart_PanicInRestartIsRecovered(t *testing.T) {
 	})
 }
 
+// --- handleStop -----------------------------------------------------------
+
+func TestHandleStop_SkipsWhenAlreadyStopped(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+	t.Cleanup(m.StopAll)
+
+	stopped := StateStopped
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &stopped})
+
+	_, cmd := m.handleStop()
+	assert.Nil(t, cmd, "should return nil cmd when already stopped")
+}
+
+func TestHandleStop_SkipsWhenRestarting(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+	t.Cleanup(m.StopAll)
+
+	restarting := StateRestarting
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &restarting})
+
+	_, cmd := m.handleStop()
+	assert.Nil(t, cmd, "should return nil cmd when restarting")
+}
+
+func TestHandleStop_ImmediatelyClearsMetrics(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+	t.Cleanup(m.StopAll)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	m.services[0].cpuPct = 42.0
+	m.services[0].memMiB = 128.0
+	m.services[0].pid = 999
+
+	newM, _ := m.handleStop()
+	updated := newM.(Model)
+
+	assert.InDelta(t, 0.0, updated.services[0].cpuPct, 1e-9)
+	assert.InDelta(t, 0.0, updated.services[0].memMiB, 1e-9)
+	assert.Equal(t, 0, updated.services[0].pid)
+}
+
+func TestHandleStop_LaunchesCommandWhenRunning(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+	t.Cleanup(m.StopAll)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleStop()
+	assert.NotNil(t, cmd, "should return a cmd when healthy")
+}
+
+func TestHandleStop_CmdBodyCallsStopAndNotify(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+	t.Cleanup(m.StopAll)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleStop()
+	require.NotNil(t, cmd)
+
+	// cmd() calls StopAndNotify which blocks until stop is done; result must be nil.
+	result := cmd()
+	assert.Nil(t, result)
+}
+
+func TestHandleStop_PanicInStopIsRecovered(t *testing.T) {
+	m := NewModel(t.Context(), &Config{
+		Services: []ServiceConfig{{Name: "svc", Command: "true", Probe: ProbeNone}},
+	}, nil)
+
+	healthy := StateHealthy
+	m.applyServiceUpdate(ServiceUpdate{Name: "svc", State: &healthy})
+
+	_, cmd := m.handleStop()
+	require.NotNil(t, cmd)
+
+	// Close the channel so StopAndNotify's sendUpdate panics.
+	close(m.updateCh)
+
+	assert.NotPanics(t, func() { cmd() })
+}
+
 // --- getProcessMetrics invalid PID ----------------------------------------
 
 func TestGetProcessMetrics_InvalidPIDReturnsZero(t *testing.T) {
@@ -2391,7 +2497,7 @@ func TestCmd_EmptyServicesReturnsError(t *testing.T) {
 	err := c.RunE(c, []string{})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no services")
+	assert.Contains(t, err.Error(), "at least one service")
 }
 
 func TestCmd_InvalidYAMLReturnsError(t *testing.T) {

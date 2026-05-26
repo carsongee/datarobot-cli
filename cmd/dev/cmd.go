@@ -68,6 +68,7 @@ Example config (drdev.yaml):
 Keybindings:
   j / k / ↑↓  Navigate service list
   r            Restart selected service
+  s            Stop selected service
   m            Mute / unmute logs for selected service
   /            Filter logs by text (Enter to apply, Esc to clear)
   G            Scroll logs to bottom

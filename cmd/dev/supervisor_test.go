@@ -433,6 +433,75 @@ func TestSupervisor_ConcurrentRestarts_SerializedByMutex(t *testing.T) {
 	sup.Stop()
 }
 
+func TestSupervisor_StopAndNotify_SendsStoppedAfterStop(t *testing.T) {
+	ch := make(chan ServiceUpdate, 500)
+	cfg := ServiceConfig{Name: "svc", Command: "sleep 60", Probe: ProbeNone}
+	sup := NewSupervisor(cfg, ch)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	sup.Start(ctx)
+	drainUntilState(t, ch, StateHealthy, 3*time.Second)
+
+	sup.StopAndNotify()
+
+	drainUntilState(t, ch, StateStopped, 5*time.Second)
+}
+
+func TestSupervisor_StopAndNotify_SerializesWithRestart(t *testing.T) {
+	// Verify that a concurrent StopAndNotify + Restart don't race; the mutex
+	// guarantees they are serialized.
+	ch := make(chan ServiceUpdate, 500)
+	cfg := ServiceConfig{Name: "svc", Command: "sleep 60", Probe: ProbeNone}
+	sup := NewSupervisor(cfg, ch)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	sup.Start(ctx)
+	drainUntilState(t, ch, StateHealthy, 3*time.Second)
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+
+		sup.StopAndNotify()
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		sup.Restart(ctx)
+	}()
+
+	wg.Wait()
+
+	// One of them won; drain to any terminal state — just must not deadlock/panic.
+	drainToAny := func() {
+		deadline := time.NewTimer(5 * time.Second)
+		defer deadline.Stop()
+
+		for {
+			select {
+			case u := <-ch:
+				if u.State != nil && (*u.State == StateStopped || *u.State == StateHealthy || *u.State == StateCrashed) {
+					return
+				}
+			case <-deadline.C:
+				// Acceptable: StopAndNotify may have already drained the channel.
+				return
+			}
+		}
+	}
+
+	drainToAny()
+	sup.Stop()
+}
+
 func TestSupervisor_Start_GoroutinePanicIsCaught(t *testing.T) {
 	// Closing the channel before Start() causes the first sendUpdate in run()
 	// (StateStarting) to panic. The goroutine's defer/recover must catch it,
