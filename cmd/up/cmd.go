@@ -90,10 +90,6 @@ Keybindings:
 				return fmt.Errorf("loading config: %w", err)
 			}
 
-			if len(cfg.Services) == 0 {
-				return errors.New("config file defines no services")
-			}
-
 			extraEnv, err := runPreflightFn(cmd.Context(), opts.SkipPreflight)
 			if err != nil {
 				return fmt.Errorf("pre-flight: %w", err)

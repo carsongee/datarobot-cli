@@ -100,11 +100,11 @@ func TestTelemetryWiring_AllWorkloadCommandsTracked(t *testing.T) {
 	}
 }
 
-// TestTelemetryWiring_DevCommandTracked verifies `dr up` has the telemetry
+// TestTelemetryWiring_UpCommandTracked verifies `dr up` has the telemetry
 // annotation. Because `dr up` is feature-gated it is absent from the live
 // RootCmd when DATAROBOT_CLI_FEATURE_UP is unset, so we test up.Cmd()
 // directly rather than walking RootCmd — the same approach used for workload.
-func TestTelemetryWiring_DevCommandTracked(t *testing.T) {
+func TestTelemetryWiring_UpCommandTracked(t *testing.T) {
 	cmd := up.Cmd()
 
 	assert.Containsf(t, cmd.Annotations, "telemetry",

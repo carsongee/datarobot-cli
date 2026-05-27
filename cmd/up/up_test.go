@@ -1031,15 +1031,15 @@ func TestSendUpdate_BlocksUntilReceived(t *testing.T) {
 
 func TestBuildEnv_ServiceVarsOverrideInherited(t *testing.T) {
 	// Force a known key into the inherited environment.
-	t.Setenv("DR_DEV_TEST_KEY", "inherited")
+	t.Setenv("DR_UP_TEST_KEY", "inherited")
 
-	result := buildEnv(map[string]string{"DR_DEV_TEST_KEY": "override"})
+	result := buildEnv(map[string]string{"DR_UP_TEST_KEY": "override"})
 
 	var found string
 
 	for _, kv := range result {
-		if len(kv) >= len("DR_DEV_TEST_KEY=") && kv[:len("DR_DEV_TEST_KEY=")] == "DR_DEV_TEST_KEY=" {
-			found = kv[len("DR_DEV_TEST_KEY="):]
+		if len(kv) >= len("DR_UP_TEST_KEY=") && kv[:len("DR_UP_TEST_KEY=")] == "DR_UP_TEST_KEY=" {
+			found = kv[len("DR_UP_TEST_KEY="):]
 		}
 	}
 
@@ -1047,14 +1047,14 @@ func TestBuildEnv_ServiceVarsOverrideInherited(t *testing.T) {
 }
 
 func TestBuildEnv_InheritsSystemEnv(t *testing.T) {
-	t.Setenv("DR_DEV_TEST_INHERIT", "yes")
+	t.Setenv("DR_UP_TEST_INHERIT", "yes")
 
 	result := buildEnv(nil)
 
 	var found bool
 
 	for _, kv := range result {
-		if kv == "DR_DEV_TEST_INHERIT=yes" {
+		if kv == "DR_UP_TEST_INHERIT=yes" {
 			found = true
 		}
 	}

@@ -134,7 +134,7 @@ func (s *Supervisor) Start(ctx context.Context) {
 		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				log.Debug("dev: supervisor panic recovered", "service", s.cfg.Name, "panic", r)
+				log.Debug("up: supervisor panic recovered", "service", s.cfg.Name, "panic", r)
 
 				crashed := StateCrashed
 
@@ -223,13 +223,13 @@ func (s *Supervisor) run(ctx context.Context) {
 				Timestamp: time.Now(),
 			},
 		})
-		log.Debug("dev: process start failed", "service", s.cfg.Name, "err", err)
+		log.Debug("up: process start failed", "service", s.cfg.Name, "err", err)
 
 		return
 	}
 
 	s.sendUpdate(ServiceUpdate{Name: s.cfg.Name, PID: cmd.Process.Pid})
-	log.Debug("dev: process started", "service", s.cfg.Name, "pid", cmd.Process.Pid)
+	log.Debug("up: process started", "service", s.cfg.Name, "pid", cmd.Process.Pid)
 
 	// Health probe runs until healthy or context cancelled.
 	probeCtx, probeCancel := context.WithCancel(ctx)
@@ -242,7 +242,7 @@ func (s *Supervisor) run(ctx context.Context) {
 			defer s.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Debug("dev: probe panic recovered", "service", s.cfg.Name, "panic", r)
+					log.Debug("up: probe panic recovered", "service", s.cfg.Name, "panic", r)
 				}
 			}()
 
@@ -266,6 +266,8 @@ func (s *Supervisor) run(ctx context.Context) {
 		return
 	}
 
+	// Services are expected to be long-running daemons; any exit — including a
+	// clean zero exit — is abnormal while dr up is running.
 	crashed := StateCrashed
 
 	exitMsg := "exited: status 0"
@@ -387,7 +389,7 @@ func getProcessMetrics(pid int) (cpuPct float64, memMiB float64) {
 
 	cpuPct, err = proc.CPUPercent()
 	if err != nil {
-		log.Debug("dev: cpu percent failed", "pid", pid, "err", err)
+		log.Debug("up: cpu percent failed", "pid", pid, "err", err)
 	}
 
 	memInfo, err := proc.MemoryInfo()

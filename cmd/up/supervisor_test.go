@@ -217,18 +217,18 @@ func TestSupervisor_StopDuringProbe_SendsStoppedState(t *testing.T) {
 	pidDeadline := time.NewTimer(5 * time.Second)
 	defer pidDeadline.Stop()
 
+waitForPID:
 	for {
 		select {
 		case u := <-ch:
 			if u.PID != 0 {
-				goto probeStarted
+				break waitForPID
 			}
 		case <-pidDeadline.C:
 			t.Fatal("timeout waiting for PID")
 		}
 	}
 
-probeStarted:
 	sup.Stop()
 
 	drainUntilState(t, ch, StateStopped, 5*time.Second)

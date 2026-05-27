@@ -158,6 +158,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyServiceUpdate(ServiceUpdate(msg))
 		m.refreshLogViewport()
 
+		if m.quitting {
+			return m, nil
+		}
+
 		return m, listenForUpdates(m.updateCh)
 
 	case metricsTickMsg:
@@ -369,7 +373,7 @@ func openBrowserCmdForOS(goos, url string) tea.Cmd {
 		cmd := exec.Command(args[0], args[1:]...)
 
 		if err := cmd.Start(); err != nil {
-			log.Debug("dev: open browser failed", "url", url, "err", err)
+			log.Debug("up: open browser failed", "url", url, "err", err)
 		}
 
 		return nil
@@ -411,7 +415,7 @@ func (m Model) handleRestart() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Debug("dev: restart goroutine panic recovered", "service", sup.cfg.Name, "panic", r)
+				log.Debug("up: restart goroutine panic recovered", "service", sup.cfg.Name, "panic", r)
 			}
 		}()
 
@@ -439,7 +443,7 @@ func (m Model) handleStop() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Debug("dev: stop goroutine panic recovered", "service", sup.cfg.Name, "panic", r)
+				log.Debug("up: stop goroutine panic recovered", "service", sup.cfg.Name, "panic", r)
 			}
 		}()
 

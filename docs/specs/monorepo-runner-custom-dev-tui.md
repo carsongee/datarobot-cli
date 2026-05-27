@@ -1,4 +1,4 @@
-# Monorepo-Runner: Custom Dev TUI — Technical Design
+# Monorepo-Runner: `dr up` TUI — Technical Design
 
 **Technical Design**
 Carson Gee
@@ -12,7 +12,7 @@ PBMPs: [[PBMP-7668] Local Experimentation Experience](https://linear.app/datarob
 
 The `datarobot-agent-application` monorepo currently uses a custom Python-based process runner invoked via `task dev`. It reads service definitions from `.taskfiledata.yaml` and starts 4 services with port readiness checks: `agent` (8842), `mcp_server` (9000), `fastapi_server` (8080), and `frontend_web` (5173).
 
-`drdev` provides basic per-process log output, but lacks several features that development teams have come to expect from modern process management tools:
+`drdev` (the project's existing Python-based process runner) provides basic per-process log output, but lacks several features that development teams have come to expect from modern process management tools:
 
 - **No color coding per process** — all log lines are the same color, making it hard to visually distinguish which service is logging what at a glance.
 - **No resource monitoring** — no CPU or memory usage visible per process; developers can't tell if a service is leaking memory without opening a separate tool.
@@ -30,7 +30,7 @@ Current development requires orchestrating 2–5 server processes. Our existing 
 ## Rationale
 
 - **For Developers:** Eliminates "Context Switching Fatigue." Instead of hunting through multiple terminal tabs to find a crashed service, the TUI provides a single pane of glass. Automated **readiness checks** remove the guesswork of knowing when a service is actually ready to receive traffic. Also, adds central "dashboard" to send folks off to the Local Experimentation service.
-- **For Product/Management:** Improved DX translates to **Engineering Velocity.** Onboarding a new engineer becomes a 30-second command (`my-cli dev`) rather than a complex troubleshooting session.
+- **For Product/Management:** Improved DX translates to **Engineering Velocity.** Onboarding a new engineer becomes a 30-second command (`dr up`) rather than a complex troubleshooting session.
 - **For Customers/Stability:** Better local observability allows developers to catch resource leaks (high CPU/RAM) and race conditions locally before they ever reach a staging environment. Reduces boilerplate code and complex taskfile confusion.
 - **For Builder Builders (Platform Engineers):** Provides a way to add visibility into new features, run more servers. Enables simpler dynamic component support (bespoke af-component discovery to add additional servers to start, check for dependencies, etc).
 
@@ -51,7 +51,7 @@ Current development requires orchestrating 2–5 server processes. Our existing 
 
 ## Proposed solution
 
-We will implement a custom TUI using the [Charm.sh](https://charm.sh) framework, known for its high-quality Go terminal components with the CLI as a subcommand. i.e., `datarobot templates dev` or similar (naming to be discussed if this is the approach).
+We will implement a custom TUI using the [Charm.sh](https://charm.sh) framework, known for its high-quality Go terminal components with the CLI as a subcommand. The command is `dr up`, invoked as `dr up`, with config `dr-up.yaml`.
 
 ### High-level Architecture
 
@@ -99,7 +99,7 @@ In evaluating alternatives, we considered five approaches. A standard `Procfile`
 | Option | Pros | Cons |
 |--------|------|------|
 | **Foreman / Hivemind (Procfile)** | Color-coded output per service; clean prefix+indent formatting; Hivemind uses PTY so dev servers behave as if in a real terminal (ANSI colors and spinners work correctly); zero learning curve. Automatically loads `.env` from the working directory. | No interactivity — no per-service restart, no pause, no kill; no liveness/readiness probes; no log search or filtering; no resource monitoring. **No pre-flight configuration** — cannot resolve runtime values (Pulumi outputs, OTel entity IDs) before starting processes; workarounds require wrapper scripts that add boilerplate to the repo. Foreman additionally requires a full Ruby runtime. |
-| **Prox / Goreman** | Written in Go; lightweight; fits existing Procfile format; color-coded per service with timestamps. Automatically loads `.env`. | UX is functionally identical to Hivemind — same wall-of-text output with no interactivity, no liveness probes, no search, no resource monitoring. **No pre-flight configuration.** Zero DX improvement over the current Python script. |
+| **Goreman** | Written in Go; lightweight; fits existing Procfile format; color-coded per service with timestamps. Automatically loads `.env`. | UX is functionally identical to Hivemind — same wall-of-text output with no interactivity, no liveness probes, no search, no resource monitoring. **No pre-flight configuration.** Zero DX improvement over the current Python script. |
 | **Overmind** | Most capable of the Procfile runners: auto-restarts failed processes; supports starting subsets (`overmind start -x agent,mcp_server`); injects `PORT` into child processes; backed by tmux so you can attach to any individual process window. Automatically loads `.env`. | **Does not support Windows** — tmux is unavailable on Windows, disqualifying Overmind for any team with Windows developers. Interactivity is split across two interfaces — the log tail view has no controls, and process management requires separate `overmind` commands in another shell. No liveness probes or resource monitoring. No pre-flight configuration. The tmux-attach workflow fragments the DX rather than unifying it. |
 | **pm2** | Most fully-featured evaluated alternative: per-service restart/stop/start, and a monitoring TUI (`pm2 monit`) showing real-time CPU and memory per process — the only evaluated tool to provide this natively. Node.js is already required as a project dependency. | **Does not load `.env` automatically** — unlike all Procfile runners, pm2 requires env vars to be explicitly declared in `ecosystem.config.cjs`; a custom workaround is required for any project using `.env` files. **No pre-flight configuration** — dynamic env resolution (Pulumi, auth) still requires external scripts. The `pm2 monit` TUI is underdeveloped: logs are only buffered from when the TUI is opened (no history), all services share a single log panel with no per-service isolation, and there is no log search. Color coding in the log view is inconsistent. No service URL or port display. Daemon model requires explicit `pm2 delete all` to clean up after exit. **Runtime dependency risk:** Node.js is currently required for the React/Vite frontend, but as the project moves toward fewer components and potentially drops TypeScript/Node entirely, pm2's runtime dependency could become a liability. |
 | **Custom Go TUI (Recommended)** | **Total Control.** Built-in health checks, K9s-style UX, zero extra dependencies, ships inside our existing CLI binary. **Native pre-flight configuration** — as a first-class Go program with access to the CLI's existing Pulumi and auth integrations, it can resolve stack outputs and user context at startup and inject them into every process's environment, with no boilerplate added to the repo. | Requires internal development time (~1.5 weeks). |
@@ -123,7 +123,7 @@ The decision reduces to a single question: **simple or full-featured?**
 
 ## QA Plan
 
-Manual smoke test: run `my-cli dev` against the agent application, verify all 4 services reach Healthy status, confirm CPU/RAM metrics update, verify per-service restart hotkey, confirm clean exit (no zombie processes via `pgrep`). Verify OTel env vars are correctly injected from Pulumi at startup.
+Manual smoke test: run `dr up` against the agent application, verify all 4 services reach Healthy status, confirm CPU/RAM metrics update, verify per-service restart hotkey, confirm clean exit (no zombie processes via `pgrep`). Verify OTel env vars are correctly injected from Pulumi at startup (not yet implemented — pre-flight is a stub).
 
 ## Delivery Milestones
 

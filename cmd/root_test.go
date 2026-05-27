@@ -190,7 +190,7 @@ func TestWorkloadCommandNotPresentByDefault(t *testing.T) {
 	assert.False(t, found, "workload command should not be present when feature gate is not enabled")
 }
 
-func TestDevCommandNotPresentByDefault(t *testing.T) {
+func TestUpCommandNotPresentByDefault(t *testing.T) {
 	// Verify that `dr up` is not present unless DATAROBOT_CLI_FEATURE_UP=true.
 	// The feature gating happens during init(), so this tests the actual state.
 	cmd := RootCmd

@@ -70,7 +70,7 @@ Services with `probe: none` (or no probe configured) move directly to Healthy af
 | `m`            | Mute / unmute logs for the selected service                 |
 | `/`            | Open log filter input (Enter to apply, Esc to clear)        |
 | `G`            | Scroll logs to bottom (re-enable auto-scroll)               |
-| `o`            | Open service URL in the browser (HTTP probe URL or `localhost:<port>`) |
+| `o`            | Open service URL in the browser (HTTP or TCP probe URL, or `http://localhost:<port>`). No-op for services with `probe: none` and no `port` configured. |
 | `q` / `Esc`   | Quit and stop all services                                  |
 
 ## Options
@@ -107,8 +107,8 @@ services:
 
 | Probe  | Behavior                                                                                                     |
 |--------|--------------------------------------------------------------------------------------------------------------|
-| `tcp`  | Dials `127.0.0.1:<port>` every 500 ms. Marks the service Healthy on the first successful connection.        |
-| `http` | Makes a GET to `url` (or `http://localhost:<port>` when only `port` is set) every 500 ms. Marks Healthy when the response status is < 500. |
+| `tcp`  | Dials `127.0.0.1:<port>` every 1 second (500 ms per-attempt timeout). Marks the service Healthy on the first successful connection.        |
+| `http` | Makes a GET to `url` (or `http://localhost:<port>` when only `port` is set) every 1 second. Marks Healthy when the response status is < 500. |
 | `none` | No probe — the service is marked Healthy immediately after the process starts.                               |
 
 ### Validation rules
@@ -178,9 +178,9 @@ services:
 
 ## Pre-flight configuration
 
-Before starting services, `dr up` runs a pre-flight step that resolves runtime configuration from external sources and injects the result as environment variables into every service process. This allows services to start with the correct configuration automatically — for example, resolving your OTel endpoint from a Pulumi stack output rather than requiring manual `.env` population.
+The `--skip-preflight` flag is reserved for a planned extension. Currently the pre-flight step is a no-op — it returns immediately without querying any external sources or injecting environment variables. A future release will add support for resolving runtime configuration (such as Pulumi stack outputs or authenticated user context) and injecting the result into every service process automatically.
 
-To skip this step (for offline development or CI), use `--skip-preflight`:
+To skip the pre-flight step (once implemented), use `--skip-preflight`:
 
 ```bash
 dr up --skip-preflight
@@ -212,8 +212,11 @@ pre-flight: <error details>
 
 Check that you are authenticated (`dr auth login`) or run with `--skip-preflight` to bypass.
 
+> [!NOTE]
+> Pre-flight is currently a stub and will not produce this error. This section documents the intended behavior once pre-flight is implemented.
+
 ## See also
 
 - [`dr start`](start.md) — run the template quickstart process.
 - [`dr run`](run.md) — execute individual application tasks.
-- [`dr auth`](auth.md) — authenticate with DataRobot (required for pre-flight).
+- [`dr auth`](auth.md) — authenticate with DataRobot.

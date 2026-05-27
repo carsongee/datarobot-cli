@@ -66,6 +66,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	cfg.normalize()
 
+	// normalize must run before validate so defaults (e.g. HTTP probe URL) are set.
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
