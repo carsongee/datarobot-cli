@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev
+package up
 
 import (
 	"context"
@@ -55,7 +55,7 @@ type serviceInfo struct {
 	muted     bool
 }
 
-// Model is the top-level Bubble Tea model for `dr dev`.
+// Model is the top-level Bubble Tea model for `dr up`.
 type Model struct {
 	services         []serviceInfo
 	supervisors      []*Supervisor
@@ -383,7 +383,7 @@ func browserCmdArgs(goos, url string) []string {
 	case "darwin":
 		return []string{"open", url}
 	case "windows":
-		return []string{"cmd", "/c", "start", url}
+		return []string{"cmd", "/c", "start", "", url}
 	default:
 		return []string{"xdg-open", url}
 	}
@@ -424,8 +424,8 @@ func (m Model) handleRestart() (tea.Model, tea.Cmd) {
 func (m Model) handleStop() (tea.Model, tea.Cmd) {
 	idx := m.selected
 
-	// Skip if already stopped or a restart is in flight (would race with Stop).
-	if m.services[idx].state == StateStopped || m.services[idx].state == StateRestarting {
+	// Skip if already stopped, crashed, or a restart is in flight (would race with Stop).
+	if m.services[idx].state == StateStopped || m.services[idx].state == StateCrashed || m.services[idx].state == StateRestarting {
 		return m, nil
 	}
 
@@ -542,6 +542,7 @@ func (m Model) StopAll() {
 func (m Model) stopAllCmd() tea.Cmd {
 	return func() tea.Msg {
 		m.StopAll()
+		close(m.updateCh)
 
 		return shutdownDoneMsg{}
 	}
@@ -603,7 +604,7 @@ func (m Model) logViewHeight() int {
 // --- View renderers ---------------------------------------------------
 
 func (m Model) renderHeader() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(tui.DrGreen).Render("dr dev")
+	title := lipgloss.NewStyle().Bold(true).Foreground(tui.DrGreen).Render("dr up")
 	count := fmt.Sprintf(" · %d service", len(m.services))
 
 	if len(m.services) != 1 {
@@ -779,9 +780,6 @@ func (m Model) renderLogPanel() string {
 		return label + "\n" + filterRow + tui.DimStyle.Render("  (logs muted — press m to unmute)") + blank + "\n"
 	}
 
-	m.logView.Width = m.width
-	m.logView.Height = m.logViewHeight()
-
 	return label + "\n" + filterRow + m.logView.View() + "\n"
 }
 
@@ -819,6 +817,10 @@ func formatDuration(d time.Duration) string {
 
 // truncate clips s to at most n display characters, appending "…" if clipped.
 func truncate(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+
 	runes := []rune(s)
 
 	if len(runes) <= n {

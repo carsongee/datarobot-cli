@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev
+package up
 
 import (
 	"errors"
@@ -27,31 +27,31 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Options holds command-line flags for `dr dev`.
+// Options holds command-line flags for `dr up`.
 type Options struct {
 	ConfigFile    string
 	SkipPreflight bool
 }
 
-// Cmd returns the cobra.Command for `dr dev`.
+// Cmd returns the cobra.Command for `dr up`.
 func Cmd() *cobra.Command {
 	var opts Options
 
 	cmd := &cobra.Command{
-		Use:     "dev",
+		Use:     "up",
 		GroupID: "core",
 		Short:   "Run development services with a live TUI dashboard",
 		Long: `Start and supervise local development services with real-time
 visibility into process health, resource usage, and log output.
 
-Services are defined in a YAML config file (default: drdev.yaml).
+Services are defined in a YAML config file (default: dr-up.yaml).
 
 Before starting services, pre-flight steps may query external sources
 (e.g. Pulumi stack outputs, authenticated user context) and inject the
 results as environment variables so services start with the right
 configuration automatically. Use --skip-preflight to bypass this step.
 
-Example config (drdev.yaml):
+Example config (dr-up.yaml):
 
   services:
     - name: api
@@ -111,9 +111,9 @@ Keybindings:
 		},
 	}
 
-	features.SetGate(cmd, "dev")
+	features.SetGate(cmd, "up")
 
-	cmd.Flags().StringVarP(&opts.ConfigFile, "config", "c", "drdev.yaml",
+	cmd.Flags().StringVarP(&opts.ConfigFile, "config", "c", "dr-up.yaml",
 		"path to service config file")
 	cmd.Flags().BoolVar(&opts.SkipPreflight, "skip-preflight", false,
 		"skip pre-flight configuration steps (for offline use)")

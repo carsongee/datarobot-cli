@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev
+package up
 
 import (
 	"bytes"
@@ -1018,13 +1018,13 @@ func TestLineWriter_FlushDropsWhenChannelFull(t *testing.T) {
 	assert.Empty(t, ch)
 }
 
-func TestSendUpdate_DropsWhenChannelFull(t *testing.T) {
-	ch := make(chan ServiceUpdate) // unbuffered: always hits default
+func TestSendUpdate_BlocksUntilReceived(t *testing.T) {
+	ch := make(chan ServiceUpdate, 1)
 	sup := &Supervisor{cfg: ServiceConfig{Name: "svc"}, ch: ch}
 
 	sup.sendUpdate(ServiceUpdate{Name: "svc"})
 
-	assert.Empty(t, ch)
+	assert.Len(t, ch, 1)
 }
 
 // --- buildEnv tests -----------------------------------------------------
@@ -1099,7 +1099,7 @@ func writeTempConfig(t *testing.T, content string) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "drdev.yaml")
+	path := filepath.Join(dir, "dr-up.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 	return path
@@ -1136,7 +1136,7 @@ func TestProbeHTTP_HealthyServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	assert.True(t, probeHTTP(srv.URL))
+	assert.True(t, probeHTTP(t.Context(), srv.URL))
 }
 
 func TestProbeHTTP_ServerError(t *testing.T) {
@@ -1145,7 +1145,7 @@ func TestProbeHTTP_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	assert.False(t, probeHTTP(srv.URL))
+	assert.False(t, probeHTTP(t.Context(), srv.URL))
 }
 
 func TestProbeHTTP_ClientError404(t *testing.T) {
@@ -1155,11 +1155,11 @@ func TestProbeHTTP_ClientError404(t *testing.T) {
 	defer srv.Close()
 
 	// 4xx is < 500 so the service is considered healthy (it's responding).
-	assert.True(t, probeHTTP(srv.URL))
+	assert.True(t, probeHTTP(t.Context(), srv.URL))
 }
 
 func TestProbeHTTP_UnreachableURL(t *testing.T) {
-	assert.False(t, probeHTTP("http://127.0.0.1:1"))
+	assert.False(t, probeHTTP(t.Context(), "http://127.0.0.1:1"))
 }
 
 // --- preflight tests ----------------------------------------------------
@@ -1509,11 +1509,12 @@ func TestBrowserCmdArgs_Darwin(t *testing.T) {
 func TestBrowserCmdArgs_Windows(t *testing.T) {
 	args := browserCmdArgs("windows", "http://localhost:8080")
 
-	require.Len(t, args, 4)
+	require.Len(t, args, 5)
 	assert.Equal(t, "cmd", args[0])
 	assert.Equal(t, "/c", args[1])
 	assert.Equal(t, "start", args[2])
-	assert.Equal(t, "http://localhost:8080", args[3])
+	assert.Empty(t, args[3])
+	assert.Equal(t, "http://localhost:8080", args[4])
 }
 
 func TestBrowserCmdArgs_Linux(t *testing.T) {
@@ -2480,7 +2481,7 @@ func TestCmd_MissingConfigReturnsErrSilent(t *testing.T) {
 
 	c.SetErr(&errBuf)
 
-	require.NoError(t, c.Flags().Set("config", "/tmp/drdev-definitely-does-not-exist.yaml"))
+	require.NoError(t, c.Flags().Set("config", "/tmp/dr-up-definitely-does-not-exist.yaml"))
 
 	err := c.RunE(c, []string{})
 

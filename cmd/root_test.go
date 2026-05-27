@@ -191,18 +191,18 @@ func TestWorkloadCommandNotPresentByDefault(t *testing.T) {
 }
 
 func TestDevCommandNotPresentByDefault(t *testing.T) {
-	// Verify that `dr dev` is not present unless DATAROBOT_CLI_FEATURE_DEV=true.
+	// Verify that `dr up` is not present unless DATAROBOT_CLI_FEATURE_UP=true.
 	// The feature gating happens during init(), so this tests the actual state.
 	cmd := RootCmd
 
 	var found bool
 
 	for _, subCmd := range cmd.Commands() {
-		if subCmd.Name() == "dev" {
+		if subCmd.Name() == "up" {
 			found = true
 			break
 		}
 	}
 
-	assert.False(t, found, "dev command should not be present when DATAROBOT_CLI_FEATURE_DEV is unset")
+	assert.False(t, found, "up command should not be present when DATAROBOT_CLI_FEATURE_UP is unset")
 }

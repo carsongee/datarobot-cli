@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev
+package up
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -294,7 +295,7 @@ func (s *Supervisor) runProbe(ctx context.Context) {
 			var ok bool
 
 			if s.cfg.Probe == ProbeHTTP {
-				ok = probeHTTP(s.cfg.URL)
+				ok = probeHTTP(ctx, s.cfg.URL)
 			} else {
 				ok = probeTCP(s.cfg.Port)
 			}
@@ -310,11 +311,7 @@ func (s *Supervisor) runProbe(ctx context.Context) {
 }
 
 func (s *Supervisor) sendUpdate(u ServiceUpdate) {
-	select {
-	case s.ch <- u:
-	default:
-		// Drop if the model is not draining fast enough; prefer not blocking goroutines.
-	}
+	s.ch <- u
 }
 
 // lineWriter is an io.Writer that splits writes into lines and sends each
@@ -388,7 +385,10 @@ func getProcessMetrics(pid int) (cpuPct float64, memMiB float64) {
 		return 0, 0
 	}
 
-	cpuPct, _ = proc.CPUPercent()
+	cpuPct, err = proc.CPUPercent()
+	if err != nil {
+		log.Debug("dev: cpu percent failed", "pid", pid, "err", err)
+	}
 
 	memInfo, err := proc.MemoryInfo()
 	if err != nil || memInfo == nil {
@@ -406,22 +406,41 @@ func getProcessMetrics(pid int) (cpuPct float64, memMiB float64) {
 func buildEnv(extra map[string]string) []string {
 	inherited := os.Environ()
 
-	// Index inherited env by key so we can deduplicate correctly.
-	merged := make(map[string]string, len(inherited)+len(extra))
+	// Index inherited keys so we can skip them when appending overrides.
+	inheritedKeys := make(map[string]bool, len(inherited))
 
 	for _, kv := range inherited {
-		k, v, _ := strings.Cut(kv, "=")
-		merged[k] = v
+		k, _, _ := strings.Cut(kv, "=")
+		inheritedKeys[k] = true
 	}
 
-	for k, v := range extra {
-		merged[k] = v
+	// Collect and sort the service-specific override keys for deterministic output.
+	overrideKeys := make([]string, 0, len(extra))
+
+	for k := range extra {
+		overrideKeys = append(overrideKeys, k)
 	}
 
-	result := make([]string, 0, len(merged))
+	slices.Sort(overrideKeys)
 
-	for k, v := range merged {
-		result = append(result, k+"="+v)
+	// Build the result: inherited base (preserving original order) with overridden
+	// keys replaced, then sorted service-specific keys that are new additions.
+	result := make([]string, 0, len(inherited)+len(extra))
+
+	for _, kv := range inherited {
+		k, _, _ := strings.Cut(kv, "=")
+
+		if v, ok := extra[k]; ok {
+			result = append(result, k+"="+v)
+		} else {
+			result = append(result, kv)
+		}
+	}
+
+	for _, k := range overrideKeys {
+		if !inheritedKeys[k] {
+			result = append(result, k+"="+extra[k])
+		}
 	}
 
 	return result

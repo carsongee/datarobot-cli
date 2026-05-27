@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev
+package up
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -41,8 +42,13 @@ func probeTCP(port int) bool {
 }
 
 // probeHTTP makes a GET to url and returns true if the response status < 500.
-func probeHTTP(url string) bool {
-	resp, err := httpProbeClient.Get(url) //nolint:noctx
+func probeHTTP(ctx context.Context, url string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false
+	}
+
+	resp, err := httpProbeClient.Do(req)
 	if err != nil {
 		return false
 	}

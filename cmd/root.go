@@ -24,7 +24,6 @@ import (
 	"github.com/datarobot/cli/cmd/auth"
 	"github.com/datarobot/cli/cmd/component"
 	"github.com/datarobot/cli/cmd/dependencies"
-	"github.com/datarobot/cli/cmd/dev"
 	"github.com/datarobot/cli/cmd/dotenv"
 	"github.com/datarobot/cli/cmd/pipeline"
 	"github.com/datarobot/cli/cmd/plugin"
@@ -33,6 +32,7 @@ import (
 	"github.com/datarobot/cli/cmd/task"
 	"github.com/datarobot/cli/cmd/task/run"
 	"github.com/datarobot/cli/cmd/templates"
+	"github.com/datarobot/cli/cmd/up"
 	"github.com/datarobot/cli/cmd/workload"
 	"github.com/datarobot/cli/internal/cli"
 	"github.com/datarobot/cli/internal/config"
@@ -211,7 +211,7 @@ func init() {
 		auth.Cmd(),
 		component.Cmd(),
 		dependencies.Cmd(),
-		dev.Cmd(),
+		up.Cmd(),
 		dotenv.Cmd(),
 		run.Cmd(),
 		self.Cmd(),

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev
+package up
 
 import (
 	"errors"
@@ -64,6 +64,8 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config %q: %w", path, err)
 	}
 
+	cfg.normalize()
+
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
@@ -77,6 +79,17 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// normalize sets default values on service configs before validation.
+func (c *Config) normalize() {
+	for i := range c.Services {
+		sc := &c.Services[i]
+
+		if sc.Probe == ProbeHTTP && sc.URL == "" && validPort(sc.Port) {
+			sc.URL = fmt.Sprintf("http://localhost:%d", sc.Port)
+		}
+	}
 }
 
 func (c *Config) validate() error {
@@ -142,10 +155,6 @@ func (sc *ServiceConfig) validateProbe() error {
 func (sc *ServiceConfig) validateHTTPProbe() error {
 	if sc.URL == "" && !validPort(sc.Port) {
 		return fmt.Errorf("service %q: probe http requires url or a valid port (1–65535)", sc.Name)
-	}
-
-	if sc.URL == "" {
-		sc.URL = fmt.Sprintf("http://localhost:%d", sc.Port)
 	}
 
 	if !validHTTPURL(sc.URL) {

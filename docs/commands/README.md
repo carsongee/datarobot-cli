@@ -36,6 +36,7 @@ These flags are available for all commands:
 | `component`             | Manage template components.                         |
 | `templates`             | Manage application templates.                       |
 | [`start`](start.md)     | Run the application quickstart process.             |
+| [`up`](up.md)           | Run development services with a live TUI dashboard. |
 | [`run`](run.md)         | Execute application tasks.                          |
 | [`task`](task.md)       | Manage Taskfile composition and task execution.     |
 | [`dotenv`](dotenv.md)   | Manage environment variables.                       |
@@ -61,6 +62,7 @@ dr
 │   ├── list           List available templates
 │   └── setup          Interactive setup wizard
 ├── start              Run quickstart process (alias: quickstart)
+├── up                 Development service runner (feature-gated)
 ├── run                Task execution (alias: r)
 ├── task               Taskfile composition and execution
 │   ├── compose        Compose unified Taskfile
@@ -207,6 +209,10 @@ For detailed documentation on each command, see:
 - **templates**&mdash;template operations.
   - `list`&mdash;list available templates.
   - `setup`&mdash;interactive wizard for full setup.
+
+- **[up](up.md)**&mdash;local development service runner (feature-gated: `DATAROBOT_CLI_FEATURE_UP=true`).
+  - Starts and supervises multiple processes with a live TUI.
+  - Per-service readiness probes (TCP/HTTP), log viewer, restart/stop controls.
 
 - **[run](run.md)**&mdash;task execution.
   - Execute template tasks.

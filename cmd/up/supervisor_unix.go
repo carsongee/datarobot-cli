@@ -14,7 +14,7 @@
 
 //go:build !windows
 
-package dev
+package up
 
 import (
 	"context"

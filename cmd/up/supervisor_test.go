@@ -14,7 +14,7 @@
 
 //go:build !windows
 
-package dev
+package up
 
 import (
 	"context"
@@ -348,7 +348,7 @@ func TestProbeHTTP_ReturnsTrueForOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	assert.True(t, probeHTTP(srv.URL))
+	assert.True(t, probeHTTP(t.Context(), srv.URL))
 }
 
 func TestProbeHTTP_ReturnsFalseForServerError(t *testing.T) {
@@ -357,11 +357,11 @@ func TestProbeHTTP_ReturnsFalseForServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	assert.False(t, probeHTTP(srv.URL))
+	assert.False(t, probeHTTP(t.Context(), srv.URL))
 }
 
 func TestProbeHTTP_ReturnsFalseWhenUnreachable(t *testing.T) {
-	assert.False(t, probeHTTP("http://127.0.0.1:1/health"))
+	assert.False(t, probeHTTP(t.Context(), "http://127.0.0.1:1/health"))
 }
 
 func TestSupervisor_StartErrorCancelledContext_SendsStoppedState(t *testing.T) {
